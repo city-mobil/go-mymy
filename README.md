@@ -6,7 +6,7 @@ MyMy behaves like a man in the middle and allows to mutate and filter data.
 It uses mysqldump to fetch the origin data at first, then syncs data incrementally with binlog.
 
 MyMy build on top of plugins: you can use ready plugins or write your own. 
-Only plugins decides how to replicate the data. 
+Only plugins decide how to replicate the data. 
 
 ## Use cases
 
@@ -21,7 +21,7 @@ In other cases strongly consider using the native MySQL replication.
 * MySQL version >= 5.7, MariaDB is not supported right now.
 * Binlog format must be set to ROW.
 * Binlog row image must be full for MySQL. You may lost some field data if you update PK data in MySQL with minimal or noblob binlog row image.
-* `mysqldump` must exist in the same node with mysql-tarantool-replicator. If not, replicator will try to sync binlog only.
+* `mysqldump` must exist in the same node with replicator. If not, replicator will try to sync binlog only.
 
 ### MySQL
 
