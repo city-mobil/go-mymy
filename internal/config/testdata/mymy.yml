@@ -1,0 +1,50 @@
+app:
+  listen_addr: ':8081'
+  data_file: '/etc/mymy/state.info'
+  plugin_dir: '/etc/mymy/plugins'
+  health:
+    seconds_behind_master: 5
+  logging:
+    level: 'debug'
+    syslog_enabled: true
+    file_enabled: true
+    file_name: '/var/log/mymy.log'
+    file_max_size: 256
+    file_max_backups: 3
+    file_max_age: 5
+
+replication:
+  server_id: 100
+  gtid_mode: true
+
+  source:
+    dump:
+      exec_path: '/usr/bin/mysqldump'
+      skip_master_data: false
+      extra_options:
+        - '--column-statistics=0'
+    addr: '127.0.0.1:3306'
+    user: 'repl'
+    password: 'repl'
+    database: 'city'
+    charset: 'utf8'
+
+  upstream:
+    addr: '127.0.0.1:3307'
+    user: 'repl'
+    password: 'repl'
+    database: 'town'
+    charset: 'utf8'
+    max_retries: 3
+    max_open_conns: 500
+    max_idle_conns: 500
+    connect_timeout: '500ms'
+    write_timeout: '500ms'
+
+  rules:
+    - source:
+        table: 'users'
+      upstream:
+        plugin:
+          name: 'mymy_filter'
+          config: 'plugins/mymy.filter.yml'
