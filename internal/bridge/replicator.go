@@ -13,9 +13,9 @@ import (
 	"go.uber.org/atomic"
 	"go.uber.org/multierr"
 
+	"github.com/city-mobil/go-mymy/internal/client"
 	"github.com/city-mobil/go-mymy/internal/config"
 	"github.com/city-mobil/go-mymy/internal/metrics"
-	"github.com/city-mobil/go-mymy/internal/upstream"
 	"github.com/city-mobil/go-mymy/pkg/mymy"
 )
 
@@ -29,7 +29,7 @@ type Bridge struct {
 	rules map[string]*mymy.Rule
 
 	canal      *canal.Canal
-	upstream   *upstream.Upstream
+	upstream   *client.SQLClient
 	stateSaver stateSaver
 
 	ctx    context.Context
@@ -43,7 +43,7 @@ type Bridge struct {
 	closeOnce *sync.Once
 }
 
-func New(cfg *config.Config, logger zerolog.Logger) (*Bridge, error) {
+func New(cfg *config.Config, ehFactory EventHandlerFactory, logger zerolog.Logger) (*Bridge, error) {
 	b := &Bridge{
 		logger:    logger,
 		dumping:   atomic.NewBool(false),
@@ -64,7 +64,7 @@ func New(cfg *config.Config, logger zerolog.Logger) (*Bridge, error) {
 		return nil, err
 	}
 
-	if err := b.newRules(cfg); err != nil {
+	if err := b.newRules(cfg, ehFactory); err != nil {
 		return nil, err
 	}
 
@@ -96,16 +96,16 @@ func (b *Bridge) newStateSaver(cfg *config.Config) error {
 	return nil
 }
 
-func (b *Bridge) newRules(cfg *config.Config) error {
+func (b *Bridge) newRules(cfg *config.Config, ehFactory EventHandlerFactory) error {
 	db := cfg.Replication.SourceOpts.Database
 	pluginDir := cfg.App.PluginDir
 
 	rules := make(map[string]*mymy.Rule, len(cfg.Replication.Rules))
 	for _, rule := range cfg.Replication.Rules {
 		pluginCfg := rule.Upstream.Plugin
-		uh, err := newUserHandler(pluginDir, pluginCfg.Name, pluginCfg.Config)
+		uh, err := ehFactory.New(pluginCfg.Name, pluginCfg.Config)
 		if err != nil {
-			return fmt.Errorf("plugin error: dir: %s, name: %s, err: %w", pluginDir, pluginCfg.Name, err)
+			return fmt.Errorf("create handler error: plugin dir: %s, name: %s, err: %w", pluginDir, pluginCfg.Name, err)
 		}
 
 		table := rule.Source.Table
@@ -220,7 +220,19 @@ func (b *Bridge) syncRulesAndCanalDump() {
 }
 
 func (b *Bridge) newUpstream(cfg *config.Config) error {
-	u, err := upstream.New(&cfg.Replication.UpstreamOpts)
+	opts := &cfg.Replication.UpstreamOpts
+	u, err := client.New(&client.Config{
+		Addr:           opts.Addr,
+		User:           opts.User,
+		Password:       opts.Password,
+		Database:       opts.Database,
+		Charset:        opts.Charset,
+		MaxRetries:     opts.MaxRetries,
+		MaxOpenConns:   opts.MaxOpenConns,
+		MaxIdleConns:   opts.MaxIdleConns,
+		ConnectTimeout: opts.ConnectTimeout,
+		WriteTimeout:   opts.WriteTimeout,
+	})
 	if err != nil {
 		return err
 	}
@@ -278,6 +290,7 @@ func (b *Bridge) Run() error {
 
 	b.cancel()
 	wg.Wait()
+	close(errCh)
 
 	var multi error
 	for err := range errCh {

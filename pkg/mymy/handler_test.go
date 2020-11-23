@@ -1,61 +1,56 @@
-package main
+package mymy
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	"github.com/city-mobil/go-mymy/pkg/mymy"
 )
 
 var (
-	tSource = mymy.SourceInfo{
+	tSource = SourceInfo{
 		Schema: "city",
 		Table:  "clients",
-		PKs: []mymy.Column{
+		PKs: []Column{
 			{
 				Index:      0,
 				Name:       "id",
-				Type:       mymy.TypeNumber,
+				Type:       TypeNumber,
 				IsAuto:     true,
 				IsUnsigned: true,
 			},
 		},
-		Cols: []mymy.Column{
-			{Index: 1, Name: "name", Type: mymy.TypeString},
-			{Index: 2, Name: "email", Type: mymy.TypeString},
-			{Index: 3, Name: "position", Type: mymy.TypeString},
+		Cols: []Column{
+			{Index: 1, Name: "name", Type: TypeString},
+			{Index: 2, Name: "email", Type: TypeString},
+			{Index: 3, Name: "position", Type: TypeString},
 		},
 	}
 )
 
-func TestFilterEventHandler_OnRows(t *testing.T) {
+func TestBaseEventHandler_OnRows(t *testing.T) {
 	type fields struct {
-		table  string
-		filter map[string]struct{}
+		table string
+		sync  []string
 	}
 	type args struct {
-		e *mymy.RowsEvent
+		e *RowsEvent
 	}
 	tests := []struct {
 		name    string
 		fields  fields
 		args    args
-		want    []*mymy.Query
+		want    []*Query
 		wantErr bool
 	}{
 		{
 			name: "UnknownAction",
 			fields: fields{
 				table: "users",
-				filter: map[string]struct{}{
-					"name":  {},
-					"email": {},
-				},
+				sync:  []string{"name", "email"},
 			},
 			args: args{
-				e: &mymy.RowsEvent{
-					Action: mymy.Action("upsert"),
+				e: &RowsEvent{
+					Action: Action("upsert"),
 					Source: tSource,
 					Rows: [][]interface{}{
 						{1, "bob", "bob@mail.com", "CTO"},
@@ -69,14 +64,11 @@ func TestFilterEventHandler_OnRows(t *testing.T) {
 			name: "OnInsert",
 			fields: fields{
 				table: "users",
-				filter: map[string]struct{}{
-					"name":  {},
-					"email": {},
-				},
+				sync:  []string{"name", "email"},
 			},
 			args: args{
-				e: &mymy.RowsEvent{
-					Action: mymy.ActionInsert,
+				e: &RowsEvent{
+					Action: ActionInsert,
 					Source: tSource,
 					Rows: [][]interface{}{
 						{1, "bob", "bob@mail.com", "CTO"},
@@ -84,20 +76,20 @@ func TestFilterEventHandler_OnRows(t *testing.T) {
 					},
 				},
 			},
-			want: []*mymy.Query{
+			want: []*Query{
 				{
-					Action: mymy.ActionInsert,
+					Action: ActionInsert,
 					Table:  "users",
-					Values: []mymy.QueryArg{
+					Values: []QueryArg{
 						{Field: "id", Value: 1},
 						{Field: "name", Value: "bob"},
 						{Field: "email", Value: "bob@mail.com"},
 					},
 				},
 				{
-					Action: mymy.ActionInsert,
+					Action: ActionInsert,
 					Table:  "users",
-					Values: []mymy.QueryArg{
+					Values: []QueryArg{
 						{Field: "id", Value: 2},
 						{Field: "name", Value: "alice"},
 						{Field: "email", Value: "alice@mail.com"},
@@ -111,14 +103,11 @@ func TestFilterEventHandler_OnRows(t *testing.T) {
 			name: "OnUpdate",
 			fields: fields{
 				table: "users",
-				filter: map[string]struct{}{
-					"name":  {},
-					"email": {},
-				},
+				sync:  []string{"name", "email"},
 			},
 			args: args{
-				e: &mymy.RowsEvent{
-					Action: mymy.ActionUpdate,
+				e: &RowsEvent{
+					Action: ActionUpdate,
 					Source: tSource,
 					Rows: [][]interface{}{
 						{1, "bob", "bob@mail.com", "CTO"},
@@ -128,28 +117,28 @@ func TestFilterEventHandler_OnRows(t *testing.T) {
 					},
 				},
 			},
-			want: []*mymy.Query{
+			want: []*Query{
 				{
-					Action: mymy.ActionUpdate,
+					Action: ActionUpdate,
 					Table:  "users",
-					Values: []mymy.QueryArg{
+					Values: []QueryArg{
 						{Field: "id", Value: 1},
 						{Field: "name", Value: "alice"},
 						{Field: "email", Value: "alice@mail.com"},
 					},
-					Where: []mymy.QueryArg{
+					Where: []QueryArg{
 						{Field: "id", Value: 1},
 					},
 				},
 				{
-					Action: mymy.ActionUpdate,
+					Action: ActionUpdate,
 					Table:  "users",
-					Values: []mymy.QueryArg{
+					Values: []QueryArg{
 						{Field: "id", Value: 3},
 						{Field: "name", Value: "john"},
 						{Field: "email", Value: "john@mail.com"},
 					},
-					Where: []mymy.QueryArg{
+					Where: []QueryArg{
 						{Field: "id", Value: 2},
 					},
 				},
@@ -161,14 +150,11 @@ func TestFilterEventHandler_OnRows(t *testing.T) {
 			name: "OnDelete",
 			fields: fields{
 				table: "users",
-				filter: map[string]struct{}{
-					"name":  {},
-					"email": {},
-				},
+				sync:  []string{"name", "email"},
 			},
 			args: args{
-				e: &mymy.RowsEvent{
-					Action: mymy.ActionDelete,
+				e: &RowsEvent{
+					Action: ActionDelete,
 					Source: tSource,
 					Rows: [][]interface{}{
 						{1, "bob", "bob@mail.com", "CTO"},
@@ -176,18 +162,18 @@ func TestFilterEventHandler_OnRows(t *testing.T) {
 					},
 				},
 			},
-			want: []*mymy.Query{
+			want: []*Query{
 				{
-					Action: mymy.ActionDelete,
+					Action: ActionDelete,
 					Table:  "users",
-					Where: []mymy.QueryArg{
+					Where: []QueryArg{
 						{Field: "id", Value: 1},
 					},
 				},
 				{
-					Action: mymy.ActionDelete,
+					Action: ActionDelete,
 					Table:  "users",
-					Where: []mymy.QueryArg{
+					Where: []QueryArg{
 						{Field: "id", Value: 2},
 					},
 				},
@@ -199,10 +185,9 @@ func TestFilterEventHandler_OnRows(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			eH := &FilterEventHandler{
-				table:  tt.fields.table,
-				filter: tt.fields.filter,
-			}
+			eH := NewBaseEventHandler(tt.fields.table)
+			eH.SyncOnly(tt.fields.sync)
+
 			got, err := eH.OnRows(tt.args.e)
 			if tt.wantErr {
 				assert.Error(t, err)

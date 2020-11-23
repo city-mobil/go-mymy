@@ -3,7 +3,6 @@ package config
 import (
 	"io/ioutil"
 	"os"
-	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -138,28 +137,6 @@ func (c *UpstreamConfig) withDefaults() {
 	c.MaxIdleConns = defaultMaxIdleConns
 	c.ConnectTimeout = defaultConnectTimeout
 	c.WriteTimeout = defaultWriteTimeout
-}
-
-func (c *UpstreamConfig) DSN() string {
-	builder := strings.Builder{}
-	builder.WriteString(c.User)
-	builder.WriteByte(':')
-	builder.WriteString(c.Password)
-	builder.WriteString("@tcp(")
-	builder.WriteString(c.Addr)
-	builder.WriteString(")/")
-	builder.WriteString(c.Database)
-	builder.WriteString("?timeout=")
-	builder.WriteString(c.ConnectTimeout.String())
-	builder.WriteString("&writeTimeout=")
-	builder.WriteString(c.WriteTimeout.String())
-	builder.WriteString("&interpolateParams=true")
-	if c.Charset != "" {
-		builder.WriteString("&charset=")
-		builder.WriteString(c.Charset)
-	}
-
-	return builder.String()
 }
 
 type RuleConfig struct {

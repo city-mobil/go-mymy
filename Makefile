@@ -6,8 +6,12 @@ LDFLAGS=-ldflags "-w -s -X main.version=${VERSION} -X main.commit=${COMMIT} -X m
 
 all: build
 
+.PHONY: gen
+gen:
+	go generate
+
 .PHONY: build
-build:
+build: gen
 	go build ${LDFLAGS} -o bin/${BINARY} cmd/mymy/main.go
 	go build -buildmode=plugin -o bin/plugins/mymy_filter.so cmd/plugins/filter/main.go
 	cp cmd/plugins/filter/cfg.yml bin/plugins/filter.plugin.yml
@@ -26,7 +30,10 @@ run_short_tests:
 
 .PHONY: run_tests
 run_tests: env_up
-	go test -count=1 -v -race ./...
+	go test -count=1 -v -race -coverpkg=./internal/... -covermode=atomic -coverprofile=profile.cov ./...
+	go tool cover -func=profile.cov
+	go tool cover -html=profile.cov -o cover.html
+	rm profile.cov
 
 .PHONY: env_up
 env_up:

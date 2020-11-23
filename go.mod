@@ -5,6 +5,7 @@ go 1.14
 require (
 	github.com/etherlabsio/healthcheck v0.0.0-20191224061800-dd3d2fd8c3f6
 	github.com/go-sql-driver/mysql v1.5.0
+	github.com/golang/mock v1.4.4
 	github.com/prometheus/client_golang v1.8.0
 	github.com/rs/zerolog v1.20.0
 	github.com/siddontang/go v0.0.0-20180604090527-bdc77568d726

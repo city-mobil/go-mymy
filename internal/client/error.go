@@ -1,4 +1,4 @@
-package upstream
+package client
 
 import (
 	"database/sql/driver"

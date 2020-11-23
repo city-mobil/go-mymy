@@ -1,6 +1,11 @@
 # Replicator will sync data to this table.
 table: 'clients'
 # List of non-primary columns to sync.
-columns:
+sync:
   - 'name'
   - 'email'
+# List of non-primary columns to skip.
+# Use either sync or skip option.
+#skip:
+#  - 'username'
+#  - 'password'

@@ -53,7 +53,8 @@ func main() {
 
 	metrics.Init()
 
-	b, err := bridge.New(cfg, logger)
+	factory := bridge.NewEventHandlerPluginFactory(cfg.App.PluginDir)
+	b, err := bridge.New(cfg, factory, logger)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("could not establish MySQL bridge")
 	}

@@ -44,6 +44,12 @@ func Test_parseLevelAndMsg(t *testing.T) {
 			wantLvl: zerolog.InfoLevel,
 			wantMsg: "[info message",
 		},
+		{
+			name:    "EmptyMessage",
+			arg:     []byte(""),
+			wantLvl: zerolog.InfoLevel,
+			wantMsg: "",
+		},
 	}
 
 	for _, tt := range tests {
