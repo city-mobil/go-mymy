@@ -166,7 +166,7 @@ type fileSaver struct {
 
 func newFileSaver(path string, gtidMode bool) (*fileSaver, error) {
 	path = util.AbsPath(path)
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 		return nil, err
 	}
 
