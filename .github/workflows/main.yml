@@ -35,7 +35,9 @@ jobs:
           go get github.com/golang/mock/mockgen@v1.4.4
 
       - name: Build
-        run: make build
+        run: |
+          echo "$GOPATH/bin/mockgen" >> $GITHUB_PATH
+          make build
 
       - name: Test
         env:
