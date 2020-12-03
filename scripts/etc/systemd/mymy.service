@@ -1,0 +1,13 @@
+[Unit]
+Description=mymy: MySQL binlog replication to MySQL.
+Documentation=https://github.com/city-mobil/go-mymy
+After=syslog.target network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/usr/local/bin
+ExecStart=/usr/local/bin/mymy -config /etc/mymy/conf.yml
+TimeoutSec=30
+
+[Install]
+WantedBy=multi-user.target
