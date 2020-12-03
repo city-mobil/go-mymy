@@ -37,6 +37,10 @@ jobs:
       - name: Build
         run: |
           echo "$GOPATH/bin/mockgen" >> $GITHUB_PATH
+          echo "$GOPATH"
+          echo "$GOROOT"
+          echo "$GITHUB_PATH"
+          ls -la "$GOROOT"
           make build
 
       - name: Test
