@@ -2,7 +2,7 @@ version: '3.4'
 
 services:
   source:
-    image: mysql:${MYSQL_VERSION:-8.0.22}
+    image: mysql:${MYSQL_SRC_VERSION:-8.0.22}
     environment:
       - MYSQL_DATABASE=city
       - MYSQL_USER=repl
@@ -15,7 +15,7 @@ services:
       - '13306:3306'
 
   upstream:
-    image: mysql:${MYSQL_VERSION:-8.0.22}
+    image: mysql:${MYSQL_DST_VERSION:-8.0.22}
     environment:
       - MYSQL_DATABASE=town
       - MYSQL_USER=repl
