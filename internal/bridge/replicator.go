@@ -36,8 +36,9 @@ type Bridge struct {
 	cancel context.CancelFunc
 	logger zerolog.Logger
 
-	dumping *atomic.Bool
-	running *atomic.Bool
+	dumping  *atomic.Bool
+	running  *atomic.Bool
+	syncedAt *atomic.Int64
 
 	syncCh    chan interface{}
 	closeOnce *sync.Once
@@ -48,6 +49,7 @@ func New(cfg *config.Config, ehFactory EventHandlerFactory, logger zerolog.Logge
 		logger:    logger,
 		dumping:   atomic.NewBool(false),
 		running:   atomic.NewBool(false),
+		syncedAt:  atomic.NewInt64(0),
 		syncCh:    make(chan interface{}, eventsBufSize),
 		closeOnce: &sync.Once{},
 	}
@@ -244,14 +246,9 @@ func (b *Bridge) newUpstream(cfg *config.Config) error {
 // Run syncs the data from MySQL and inserts to another MySQL
 // until closed or meets errors.
 func (b *Bridge) Run() error {
-	b.setRunning(true)
 	defer b.setRunning(false)
 
-	go func() {
-		for range time.Tick(1 * time.Second) {
-			metrics.SetSecondsBehindMaster(b.Delay())
-		}
-	}()
+	go b.runBackgroundJobs()
 
 	errCh := make(chan error, 2)
 
@@ -271,6 +268,7 @@ func (b *Bridge) Run() error {
 	go func() {
 		<-b.canal.WaitDumpDone()
 		b.setDumping(false)
+		b.setRunning(true)
 	}()
 
 	var err error
@@ -316,6 +314,7 @@ func (b *Bridge) syncLoop() error {
 					return err
 				}
 			}
+			b.syncedAt.Store(time.Now().Unix())
 		case <-b.ctx.Done():
 			return nil
 		}
@@ -367,7 +366,12 @@ func (b *Bridge) Delay() uint32 {
 func (b *Bridge) setRunning(v bool) {
 	b.running.Store(v)
 	b.setDumping(false)
-	metrics.SetReplicationState(v)
+
+	if v {
+		metrics.SetReplicationState(metrics.StateRunning)
+	} else {
+		metrics.SetReplicationState(metrics.StateStopped)
+	}
 }
 
 func (b *Bridge) Running() bool {
@@ -376,8 +380,29 @@ func (b *Bridge) Running() bool {
 
 func (b *Bridge) setDumping(v bool) {
 	b.dumping.Store(v)
+	if v {
+		metrics.SetReplicationState(metrics.StateDumping)
+	}
 }
 
 func (b *Bridge) Dumping() bool {
 	return b.dumping.Load()
+}
+
+func (b *Bridge) runBackgroundJobs() {
+	go func() {
+		for range time.Tick(1 * time.Second) {
+			metrics.SetSecondsBehindMaster(b.Delay())
+		}
+	}()
+
+	go func() {
+		for range time.Tick(1 * time.Second) {
+			syncedAt := b.syncedAt.Load()
+			if syncedAt > 0 {
+				now := time.Now().Unix()
+				metrics.SetSyncedSecondsAgo(now - syncedAt)
+			}
+		}
+	}()
 }
