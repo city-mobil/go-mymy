@@ -62,6 +62,10 @@ func NewEventHandler(cfgPath string) (mymy.EventHandler, error) {
 	}, nil
 }
 
+func (eH *FilterEventHandler) OnTableChanged(info mymy.SourceInfo) error {
+	return eH.def.OnTableChanged(info)
+}
+
 func (eH *FilterEventHandler) OnRows(e *mymy.RowsEvent) ([]*mymy.Query, error) {
 	return eH.def.OnRows(e)
 }

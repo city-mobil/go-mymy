@@ -47,3 +47,17 @@ func (mr *MockEventHandlerMockRecorder) OnRows(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnRows", reflect.TypeOf((*MockEventHandler)(nil).OnRows), arg0)
 }
+
+// OnTableChanged mocks base method
+func (m *MockEventHandler) OnTableChanged(arg0 mymy.SourceInfo) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OnTableChanged", arg0)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// OnTableChanged indicates an expected call of OnTableChanged
+func (mr *MockEventHandlerMockRecorder) OnTableChanged(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnTableChanged", reflect.TypeOf((*MockEventHandler)(nil).OnTableChanged), arg0)
+}

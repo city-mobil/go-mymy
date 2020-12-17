@@ -2,9 +2,9 @@ package mymy
 
 import "fmt"
 
-// EventHandler converts incoming SQL events
-// from the master to replica queries.
+// EventHandler handles incoming events from the master.
 type EventHandler interface {
+	OnTableChanged(info SourceInfo) error
 	OnRows(e *RowsEvent) ([]*Query, error)
 }
 
@@ -44,6 +44,11 @@ func (eH *BaseEventHandler) Skip(cols []string) {
 	}
 	eH.sync = nil
 	eH.skip = skip
+}
+
+func (eH *BaseEventHandler) OnTableChanged(_ SourceInfo) error {
+	// Nothing to do.
+	return nil
 }
 
 func (eH *BaseEventHandler) OnRows(e *RowsEvent) ([]*Query, error) {

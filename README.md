@@ -5,7 +5,7 @@ MyMy behaves like a man in the middle and allows to mutate and filter data.
 
 It uses mysqldump to fetch the origin data at first, then syncs data incrementally with binlog.
 
-MyMy build on top of plugins: you can use ready plugins or write your own. 
+MyMy build on top of plugins: you can use common plugins or write your own. 
 Only plugins decide how to replicate the data. 
 
 ## Use cases
@@ -43,9 +43,14 @@ import "github.com/city-mobil/go-mymy/pkg/mymy"
 
 type MyEventHandler struct {}
 
+func (eH *MyEventHandler) OnTableChanged(info mymy.SourceInfo) error {
+	// Do something after scheme alter. 
+	panic("implement me")
+}
+
 func (eH *MyEventHandler) OnRows(e *mymy.RowsEvent) ([]*mymy.Query, error) {
-    // Do something with the event.
-    panic("implement me")
+	// Do something with the event.
+	panic("implement me")
 }
 
 func NewEventHandler(_ string) (mymy.EventHandler, error) {

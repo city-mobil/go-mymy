@@ -343,6 +343,56 @@ func (f *mockFactory) New(_, _ string) (mymy.EventHandler, error) {
 	return f.handler, nil
 }
 
+func (s *bridgeSuite) TestAlterHandler() {
+	t := s.T()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	handler := mymy_mock.NewMockEventHandler(ctrl)
+	factory := &mockFactory{
+		handler: handler,
+	}
+	s.init(s.cfg, factory)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	handler.EXPECT().OnTableChanged(gomock.Any()).DoAndReturn(func(got mymy.SourceInfo) error {
+		defer wg.Done()
+
+		found := false
+		for _, col := range got.Cols {
+			if col.Name == "new_name" {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "altered column not found")
+
+		return nil
+	}).Times(1)
+
+	go func() {
+		err := s.bridge.Run()
+		assert.NoError(t, err)
+	}()
+
+	<-s.bridge.canal.WaitDumpDone()
+
+	_, err := s.source.Exec(context.Background(), "ALTER TABLE city.users CHANGE `name` `new_name` varchar(50)")
+	require.NoError(t, err)
+
+	defer func() {
+		_, err = s.source.Exec(context.Background(), "ALTER TABLE city.users CHANGE `new_name` `name` varchar(50)")
+		require.NoError(t, err)
+	}()
+
+	wg.Wait()
+
+	err = s.bridge.Close()
+	assert.NoError(t, err)
+}
+
 func (s *bridgeSuite) TestHandlerReturnsError() {
 	t := s.T()
 	ctrl := gomock.NewController(t)
