@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -59,8 +60,9 @@ func main() {
 		logger.Fatal().Err(err).Msg("could not establish MySQL bridge")
 	}
 
-	health := initHealthHandler(cfg.App.Health, b)
-	server := initHTTPServer(cfg.App.ListenAddr, health)
+	healthHd := initHealthHandler(cfg.App.Health, b)
+	aboutHd := initAboutHandler(version, commit, buildDate)
+	server := initHTTPServer(cfg.App.ListenAddr, healthHd, aboutHd)
 	go func() {
 		logger.Info().Msgf("listening on %s", cfg.App.ListenAddr)
 
@@ -161,7 +163,7 @@ func newRollingLogFile(cfg *config.Logging) (io.Writer, error) {
 	}, nil
 }
 
-func initHTTPServer(addr string, health http.Handler) *http.Server {
+func initHTTPServer(addr string, healthHd, aboutHd http.Handler) *http.Server {
 	server := &http.Server{
 		Addr:         addr,
 		ReadTimeout:  5 * time.Second,
@@ -169,7 +171,8 @@ func initHTTPServer(addr string, health http.Handler) *http.Server {
 	}
 
 	http.Handle("/metrics", promhttp.Handler())
-	http.Handle("/health", health)
+	http.Handle("/health", healthHd)
+	http.Handle("/about", aboutHd)
 
 	return server
 }
@@ -209,4 +212,30 @@ func initHealthHandler(cfg config.Health, b *bridge.Bridge) http.Handler {
 			),
 		),
 	)
+}
+
+func initAboutHandler(version, commit, buildDate string) http.Handler {
+	about := struct {
+		Version string `json:"version"`
+		Commit  string `json:"commit"`
+		Build   string `json:"build"`
+	}{
+		Version: version,
+		Commit:  commit,
+		Build:   buildDate,
+	}
+
+	aboutStr, _ := json.Marshal(about)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(aboutStr)
+	})
 }
