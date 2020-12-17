@@ -140,21 +140,21 @@ func (b *Bridge) newRules(cfg *config.Config, ehFactory EventHandlerFactory) err
 	return nil
 }
 
-func (b *Bridge) updateRule(schema, table string) error {
+func (b *Bridge) updateRule(schema, table string) (*mymy.Rule, error) {
 	rule, ok := b.rules[mymy.RuleKey(schema, table)]
 	if !ok {
-		return ErrRuleNotExist
+		return nil, ErrRuleNotExist
 	}
 
 	tableInfo, err := b.canal.GetTable(schema, table)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	rule.Source.PKs = newColumnsFromPKs(tableInfo)
 	rule.Source.Cols = newColumnsFromNonPKs(tableInfo)
 
-	return nil
+	return rule, nil
 }
 
 func (b *Bridge) newCanal(cfg *config.Config) error {

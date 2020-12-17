@@ -39,12 +39,17 @@ func (h *eventHandler) OnRotate(_ *replication.RotateEvent) error {
 }
 
 func (h *eventHandler) OnTableChanged(schema, table string) error {
-	err := h.bridge.updateRule(schema, table)
+	rule, err := h.bridge.updateRule(schema, table)
 	if err != nil && !errors.Is(err, ErrRuleNotExist) {
 		return err
 	}
 
-	return nil
+	err = rule.Handler.OnTableChanged(rule.Source)
+	if err != nil {
+		return err
+	}
+
+	return h.bridge.ctx.Err()
 }
 
 func (h *eventHandler) OnDDL(_ mysql.Position, _ *replication.QueryEvent) error {
