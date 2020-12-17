@@ -40,13 +40,16 @@ func (h *eventHandler) OnRotate(_ *replication.RotateEvent) error {
 
 func (h *eventHandler) OnTableChanged(schema, table string) error {
 	rule, err := h.bridge.updateRule(schema, table)
-	if err != nil && !errors.Is(err, ErrRuleNotExist) {
-		return err
-	}
+	ruleExist := !errors.Is(err, ErrRuleNotExist)
+	if ruleExist {
+		if err != nil {
+			return err
+		}
 
-	err = rule.Handler.OnTableChanged(rule.Source)
-	if err != nil {
-		return err
+		err = rule.Handler.OnTableChanged(rule.Source)
+		if err != nil {
+			return err
+		}
 	}
 
 	return h.bridge.ctx.Err()
