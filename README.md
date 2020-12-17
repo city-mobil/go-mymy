@@ -1,12 +1,12 @@
 # MyMy
 
-It is a service to replicate data from MySQL into MySQL automatically. 
-MyMy behaves like a man in the middle and allows to mutate and filter data.
+It is a service to replicate data from MySQL into MySQL automatically. MyMy behaves like a man in the middle and allows
+to mutate and filter data.
 
 It uses mysqldump to fetch the origin data at first, then syncs data incrementally with binlog.
 
-MyMy build on top of plugins: you can use common plugins or write your own. 
-Only plugins decide how to replicate the data. 
+MyMy build on top of plugins: you can use common plugins or write your own. Only plugins decide how to replicate the
+data.
 
 ## Use cases
 
@@ -20,7 +20,8 @@ In other cases strongly consider using the native MySQL replication.
 
 * MySQL version >= 5.7, MariaDB is not supported right now.
 * Binlog format must be set to ROW.
-* Binlog row image must be full for MySQL. You may lost some field data if you update PK data in MySQL with minimal or noblob binlog row image.
+* Binlog row image must be full for MySQL. You may lost some field data if you update PK data in MySQL with minimal or
+  noblob binlog row image.
 * `mysqldump` must exist in the same node with replicator. If not, replicator will try to sync binlog only.
 
 ### MySQL
@@ -32,6 +33,17 @@ GRANT PROCESS, RELOAD, REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'repl'@'%
 FLUSH PRIVILEGES;
 ```
 
+## API
+
+Replicator exposes several debug endpoints:
+
+* `/metrics` - runtime and app metrics in Prometheus format,
+* `/health` - health check,
+* `/about` - shows app version and build information.
+
+Health check returns status `503 Service Unavailable` if replicator is not running, dumping data or replication lag
+greater than `app.health.seconds_behind_master` config value.
+
 ## Writing plugin
 
 Implement an interface `mymy.EventHandler` and define a constructor `NewEventHandler`:
@@ -41,7 +53,7 @@ package main
 
 import "github.com/city-mobil/go-mymy/pkg/mymy"
 
-type MyEventHandler struct {}
+type MyEventHandler struct{}
 
 func (eH *MyEventHandler) OnTableChanged(info mymy.SourceInfo) error {
 	// Do something after scheme alter. 
