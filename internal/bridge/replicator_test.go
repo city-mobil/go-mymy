@@ -364,6 +364,7 @@ func (s *bridgeSuite) TestAlterHandler() {
 		for _, col := range got.Cols {
 			if col.Name == "new_name" {
 				found = true
+
 				break
 			}
 		}
