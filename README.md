@@ -71,3 +71,34 @@ func NewEventHandler(_ string) (mymy.EventHandler, error) {
 ```
 
 The handler constructor might get a path to its configuration file.
+
+## How to build the replicator and custom plugins
+
+You must build the package and your plugins on the same machine unless you get an error like:
+
+```
+plugin was built with a different version of package ...
+```
+
+Clone the `go-mymy` repository. Add the next line to your `go.mod` file in the plugin directory:
+
+```
+replace github.com/city-mobil/go-mymy v1.1.2 => ../go-mymy
+```
+
+Where `../go-mymy` is the relative path to the cloned replicator repository.
+
+Build the plugin:
+
+```bash
+CGO_ENABLED=1 go build -ldflags="-s -w" -buildmode=plugin -o bin/my_plugin.so my_plugin/main.go
+```
+
+To build the `deb` package with the replicator install [goreleaser](https://goreleaser.com/install/) and run:
+
+```bash
+cd go-mymy
+goreleaser --skip-publish --rm-dist
+```
+
+The package will be saved in the `dist` directory.
