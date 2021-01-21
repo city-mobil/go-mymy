@@ -7,12 +7,12 @@ __rootdir=$(dirname "${__workdir}")
 
 cd "${__rootdir}"
 
-while ! docker-compose exec -T source mysql --user=root --password=root_pwd -e "status" &>/dev/tty; do
+while ! docker-compose exec source mysql --user=root --password=root_pwd -e "status" &>/dev/stdout; do
   echo "Waiting for source MySQL connection..."
   sleep 1
 done
 
-while ! docker-compose exec -T upstream mysql --user=root --password=root_pwd -e "status" &>/dev/tty; do
+while ! docker-compose exec upstream mysql --user=root --password=root_pwd -e "status" &>/dev/stdout; do
   echo "Waiting for upstream MySQL connection..."
   sleep 1
 done
