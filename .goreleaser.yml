@@ -6,12 +6,14 @@ project_name: mymy
 
 builds:
   - env:
-      - CGO_ENABLED=0
+      - CGO_ENABLED=1
     main: ./cmd/mymy/main.go
     ldflags:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.buildDate={{.Date}}
     goarch:
       - amd64
+    goos:
+      - linux
 
 archives:
   - files:
