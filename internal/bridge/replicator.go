@@ -177,6 +177,11 @@ func (b *Bridge) newCanal(cfg *config.Config) error {
 	canalCfg.Dump.DiscardErr = false
 	canalCfg.Dump.SkipMasterData = myCfg.Dump.SkipMasterData
 	canalCfg.Dump.ExtraOptions = myCfg.Dump.ExtraOptions
+	canalCfg.Dump.TableDB = myCfg.Database
+	canalCfg.Dump.Tables = make([]string, 0, len(cfg.Replication.Rules))
+	for _, mapping := range cfg.Replication.Rules {
+		canalCfg.Dump.Tables = append(canalCfg.Dump.Tables, mapping.Source.Table)
+	}
 
 	syncOnly := make([]string, 0, len(cfg.Replication.Rules))
 	for _, mapping := range cfg.Replication.Rules {
