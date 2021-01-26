@@ -83,7 +83,7 @@ plugin was built with a different version of package ...
 Clone the `go-mymy` repository. Add the next line to your `go.mod` file in the plugin directory:
 
 ```
-replace github.com/city-mobil/go-mymy v1.1.2 => ../go-mymy
+replace github.com/city-mobil/go-mymy v1.1.5 => ../go-mymy
 ```
 
 Where `../go-mymy` is the relative path to the cloned replicator repository.
@@ -102,3 +102,13 @@ goreleaser --skip-publish --rm-dist
 ```
 
 The package will be saved in the `dist` directory.
+
+## Frequently Asked Questions
+
+#### Got the error "canal dump mysql err: exit status 2"  
+
+Try to increase the MySQL option `wait_timeout`:
+
+```mysql
+SET @@GLOBAL.wait_timeout = 240;
+```
