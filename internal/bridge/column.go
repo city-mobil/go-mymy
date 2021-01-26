@@ -42,8 +42,8 @@ func newColumnsFromNonPKs(table *schema.Table) []mymy.Column {
 
 func newColumnsFromPKs(table *schema.Table) []mymy.Column {
 	pks := make([]mymy.Column, 0)
-	for _, idx := range table.PKColumns {
-		col := table.GetPKColumn(idx)
+	for i, idx := range table.PKColumns {
+		col := table.GetPKColumn(i)
 		pks = append(pks, newColumn(idx, col))
 	}
 
