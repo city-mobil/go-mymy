@@ -439,6 +439,51 @@ func (s *bridgeSuite) TestHandlerReturnsError() {
 	assert.NoError(t, err)
 }
 
+func (s *bridgeSuite) TestDumpError() {
+	t := s.T()
+
+	dumpPath := "/usr/bin/mysqldump"
+	if !assert.FileExists(t, dumpPath) {
+		t.Skip("test requires mysqldump utility")
+	}
+
+	_, err := s.source.Exec(context.Background(), "INSERT INTO city.users (username, password, name, email) VALUES (?, ?, ?, ?)", "bob", "12345", "Bob", "bob@email.com")
+	require.NoError(t, err)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	handler := mymy_mock.NewMockEventHandler(ctrl)
+	factory := &mockFactory{
+		handler: handler,
+	}
+	cfg := *s.cfg
+	cfg.Replication.SourceOpts.Dump.ExecPath = dumpPath
+	s.init(&cfg, factory)
+
+	handler.EXPECT().OnRows(gomock.Any()).Return(nil, errors.New("fatal")).Times(1)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+
+		runErr := s.bridge.Run()
+		assert.Error(t, runErr)
+	}()
+
+	<-s.bridge.canal.WaitDumpDone()
+
+	wg.Wait()
+
+	assert.False(t, s.bridge.Dumping())
+	assert.False(t, s.bridge.Running())
+
+	err = s.bridge.Close()
+	assert.NoError(t, err)
+}
+
 type errFactory struct {
 }
 
