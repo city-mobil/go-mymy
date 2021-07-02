@@ -5,35 +5,36 @@
 package mymy_mock
 
 import (
+	reflect "reflect"
+
 	mymy "github.com/city-mobil/go-mymy/pkg/mymy"
 	gomock "github.com/golang/mock/gomock"
-	reflect "reflect"
 )
 
-// MockEventHandler is a mock of EventHandler interface
+// MockEventHandler is a mock of EventHandler interface.
 type MockEventHandler struct {
 	ctrl     *gomock.Controller
 	recorder *MockEventHandlerMockRecorder
 }
 
-// MockEventHandlerMockRecorder is the mock recorder for MockEventHandler
+// MockEventHandlerMockRecorder is the mock recorder for MockEventHandler.
 type MockEventHandlerMockRecorder struct {
 	mock *MockEventHandler
 }
 
-// NewMockEventHandler creates a new mock instance
+// NewMockEventHandler creates a new mock instance.
 func NewMockEventHandler(ctrl *gomock.Controller) *MockEventHandler {
 	mock := &MockEventHandler{ctrl: ctrl}
 	mock.recorder = &MockEventHandlerMockRecorder{mock}
 	return mock
 }
 
-// EXPECT returns an object that allows the caller to indicate expected use
+// EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockEventHandler) EXPECT() *MockEventHandlerMockRecorder {
 	return m.recorder
 }
 
-// OnRows mocks base method
+// OnRows mocks base method.
 func (m *MockEventHandler) OnRows(arg0 *mymy.RowsEvent) ([]*mymy.Query, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "OnRows", arg0)
@@ -42,13 +43,13 @@ func (m *MockEventHandler) OnRows(arg0 *mymy.RowsEvent) ([]*mymy.Query, error) {
 	return ret0, ret1
 }
 
-// OnRows indicates an expected call of OnRows
+// OnRows indicates an expected call of OnRows.
 func (mr *MockEventHandlerMockRecorder) OnRows(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnRows", reflect.TypeOf((*MockEventHandler)(nil).OnRows), arg0)
 }
 
-// OnTableChanged mocks base method
+// OnTableChanged mocks base method.
 func (m *MockEventHandler) OnTableChanged(arg0 mymy.SourceInfo) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "OnTableChanged", arg0)
@@ -56,7 +57,7 @@ func (m *MockEventHandler) OnTableChanged(arg0 mymy.SourceInfo) error {
 	return ret0
 }
 
-// OnTableChanged indicates an expected call of OnTableChanged
+// OnTableChanged indicates an expected call of OnTableChanged.
 func (mr *MockEventHandlerMockRecorder) OnTableChanged(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnTableChanged", reflect.TypeOf((*MockEventHandler)(nil).OnTableChanged), arg0)

@@ -253,7 +253,7 @@ func (b *Bridge) Run() error {
 	errCh := make(chan error, 2)
 
 	var wg sync.WaitGroup
-	wg.Add(1)
+	wg.Add(2)
 	go func() {
 		defer wg.Done()
 
@@ -266,6 +266,8 @@ func (b *Bridge) Run() error {
 
 	b.setDumping(true)
 	go func() {
+		defer wg.Done()
+
 		<-b.canal.WaitDumpDone()
 		b.setDumping(false)
 		b.setRunning(true)
