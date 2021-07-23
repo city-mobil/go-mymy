@@ -139,6 +139,12 @@ func (s *bridgeSuite) AfterTest(_, _ string) {
 }
 
 func (s *bridgeSuite) TestNewBridge() {
+	t := s.T()
+	dumpPath := "/usr/bin/mysqldump"
+	if !assert.FileExists(t, dumpPath) {
+		t.Skip("test requires mysqldump utility")
+	}
+
 	factory := &baseFactory{
 		table: "clients",
 	}
@@ -201,6 +207,10 @@ func (s *bridgeSuite) TestDump() {
 
 func (s *bridgeSuite) TestReplication() {
 	t := s.T()
+	dumpPath := "/usr/bin/mysqldump"
+	if !assert.FileExists(t, dumpPath) {
+		t.Skip("test requires mysqldump utility")
+	}
 
 	factory := &baseFactory{
 		table: "clients",
@@ -264,6 +274,10 @@ tank:
 
 func (s *bridgeSuite) TestReconnect() {
 	t := s.T()
+	dumpPath := "/usr/bin/mysqldump"
+	if !assert.FileExists(t, dumpPath) {
+		t.Skip("test requires mysqldump utility")
+	}
 
 	factory := &baseFactory{
 		table: "clients",
@@ -297,6 +311,10 @@ func (s *bridgeSuite) TestReconnect() {
 
 func (s *bridgeSuite) TestRenameColumn() {
 	t := s.T()
+	dumpPath := "/usr/bin/mysqldump"
+	if !assert.FileExists(t, dumpPath) {
+		t.Skip("test requires mysqldump utility")
+	}
 
 	factory := &baseFactory{
 		table: "clients",
@@ -356,6 +374,11 @@ func (f *mockFactory) New(_, _ string) (mymy.EventHandler, error) {
 
 func (s *bridgeSuite) TestAlterHandler() {
 	t := s.T()
+	dumpPath := "/usr/bin/mysqldump"
+	if !assert.FileExists(t, dumpPath) {
+		t.Skip("test requires mysqldump utility")
+	}
+
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -407,6 +430,11 @@ func (s *bridgeSuite) TestAlterHandler() {
 
 func (s *bridgeSuite) TestHandlerReturnsError() {
 	t := s.T()
+	dumpPath := "/usr/bin/mysqldump"
+	if !assert.FileExists(t, dumpPath) {
+		t.Skip("test requires mysqldump utility")
+	}
+
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
