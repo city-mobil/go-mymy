@@ -19,6 +19,7 @@ replication:
       skip_master_data: false
       extra_options:
         - '--column-statistics=0'
+      dump_size: 50
     addr: '127.0.0.1:13306'
     user: 'repl'
     password: 'repl'

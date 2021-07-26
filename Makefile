@@ -20,6 +20,10 @@ build: gen
 lint:
 	golangci-lint run -v ./...
 
+.PHONY: fmt
+fmt:
+	go fmt ./...
+
 .PHONY: run
 run: build
 	bin/${BINARY} -config=config/dev.conf.yml

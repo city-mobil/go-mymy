@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"time"
@@ -20,13 +21,15 @@ const (
 	defaultLogFileMaxSize     = 256
 	defaultLogFileMaxBackups  = 3
 	defaultLogFileMaxAge      = 5
-	defaultDumpExecPath       = "/usr/bin/mysqldump"
+	defaultLinuxDumpExecPath  = "/usr/bin/mysqldump"
+	defaultMacDumpExecPath    = "/usr/local/bin/mysqldump"
 	defaultMaxRetries         = 5
 	defaultCharset            = "utf8mb4"
 	defaultMaxOpenConns       = 200
 	defaultMaxIdleConns       = 200
 	defaultConnectTimeout     = 1 * time.Second
 	defaultWriteTimeout       = 1 * time.Second
+	defaultDumpSize           = 50
 )
 
 type Config struct {
@@ -97,6 +100,8 @@ type SourceConfig struct {
 		SkipMasterData bool `yaml:"skip_master_data"`
 		// ExtraOptions for mysqldump CLI.
 		ExtraOptions []string `yaml:"extra_options"`
+		// DumpSize is the storage size for the dump
+		DumpSize int `yaml:"dump_size"`
 	} `yaml:"dump"`
 	Addr     string `yaml:"addr"`
 	User     string `yaml:"user"`
@@ -110,8 +115,43 @@ func (c *SourceConfig) withDefaults() {
 		return
 	}
 
-	c.Dump.ExecPath = defaultDumpExecPath
+	c.Dump.ExecPath = getDefaultExecPath(c.Dump.ExecPath)
 	c.Charset = defaultCharset
+	if c.Dump.DumpSize == 0 {
+		c.Dump.DumpSize = defaultDumpSize
+	}
+}
+
+func getDefaultExecPath(path string) string {
+	var err error
+	if path == defaultLinuxDumpExecPath {
+		if err = checkExistFile(path); err != nil {
+			return defaultMacDumpExecPath
+		}
+	} else {
+		if err = checkExistFile(path); err != nil {
+			if err = checkExistFile(defaultLinuxDumpExecPath); err != nil {
+				return defaultMacDumpExecPath
+			}
+		} else {
+			return path
+		}
+	}
+
+	return defaultLinuxDumpExecPath
+}
+
+func checkExistFile(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+
+	if info.IsDir() {
+		return fmt.Errorf("%q is a directory", path)
+	}
+
+	return nil
 }
 
 type UpstreamConfig struct {

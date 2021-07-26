@@ -140,7 +140,7 @@ func (s *bridgeSuite) AfterTest(_, _ string) {
 
 func (s *bridgeSuite) TestNewBridge() {
 	t := s.T()
-	dumpPath := "/usr/bin/mysqldump"
+	dumpPath := s.cfg.Replication.SourceOpts.Dump.ExecPath
 	if !assert.FileExists(t, dumpPath) {
 		t.Skip("test requires mysqldump utility")
 	}
@@ -157,7 +157,7 @@ func (s *bridgeSuite) TestNewBridge() {
 
 func (s *bridgeSuite) TestDump() {
 	t := s.T()
-	dumpPath := "/usr/bin/mysqldump"
+	dumpPath := s.cfg.Replication.SourceOpts.Dump.ExecPath
 	if !assert.FileExists(t, dumpPath) {
 		t.Skip("test requires mysqldump utility")
 	}
@@ -168,7 +168,6 @@ func (s *bridgeSuite) TestDump() {
 	}
 
 	cfg := *s.cfg
-	cfg.Replication.SourceOpts.Dump.ExecPath = dumpPath
 	s.init(&cfg, factory)
 
 	rows := 200
@@ -207,7 +206,7 @@ func (s *bridgeSuite) TestDump() {
 
 func (s *bridgeSuite) TestReplication() {
 	t := s.T()
-	dumpPath := "/usr/bin/mysqldump"
+	dumpPath := s.cfg.Replication.SourceOpts.Dump.ExecPath
 	if !assert.FileExists(t, dumpPath) {
 		t.Skip("test requires mysqldump utility")
 	}
@@ -274,7 +273,7 @@ tank:
 
 func (s *bridgeSuite) TestReconnect() {
 	t := s.T()
-	dumpPath := "/usr/bin/mysqldump"
+	dumpPath := s.cfg.Replication.SourceOpts.Dump.ExecPath
 	if !assert.FileExists(t, dumpPath) {
 		t.Skip("test requires mysqldump utility")
 	}
@@ -286,6 +285,7 @@ func (s *bridgeSuite) TestReconnect() {
 
 	for i := 1; i < 5; i++ {
 		s.init(s.cfg, factory)
+		s.bridge.changeDumpSize(1)
 
 		go func() {
 			err := s.bridge.Run()
@@ -311,7 +311,7 @@ func (s *bridgeSuite) TestReconnect() {
 
 func (s *bridgeSuite) TestRenameColumn() {
 	t := s.T()
-	dumpPath := "/usr/bin/mysqldump"
+	dumpPath := s.cfg.Replication.SourceOpts.Dump.ExecPath
 	if !assert.FileExists(t, dumpPath) {
 		t.Skip("test requires mysqldump utility")
 	}
@@ -374,7 +374,7 @@ func (f *mockFactory) New(_, _ string) (mymy.EventHandler, error) {
 
 func (s *bridgeSuite) TestAlterHandler() {
 	t := s.T()
-	dumpPath := "/usr/bin/mysqldump"
+	dumpPath := s.cfg.Replication.SourceOpts.Dump.ExecPath
 	if !assert.FileExists(t, dumpPath) {
 		t.Skip("test requires mysqldump utility")
 	}
@@ -430,7 +430,7 @@ func (s *bridgeSuite) TestAlterHandler() {
 
 func (s *bridgeSuite) TestHandlerReturnsError() {
 	t := s.T()
-	dumpPath := "/usr/bin/mysqldump"
+	dumpPath := s.cfg.Replication.SourceOpts.Dump.ExecPath
 	if !assert.FileExists(t, dumpPath) {
 		t.Skip("test requires mysqldump utility")
 	}
@@ -470,7 +470,7 @@ func (s *bridgeSuite) TestHandlerReturnsError() {
 func (s *bridgeSuite) TestDumpError() {
 	t := s.T()
 
-	dumpPath := "/usr/bin/mysqldump"
+	dumpPath := s.cfg.Replication.SourceOpts.Dump.ExecPath
 	if !assert.FileExists(t, dumpPath) {
 		t.Skip("test requires mysqldump utility")
 	}
@@ -525,4 +525,188 @@ func (s *bridgeSuite) TestFactoryReturnsError() {
 	b, err := New(s.cfg, &errFactory{}, s.logger)
 	assert.Error(t, err)
 	assert.Nil(t, b)
+}
+
+type benchBridge struct {
+	bridge *Bridge
+
+	source   *client.SQLClient
+	upstream *client.SQLClient
+	logger   zerolog.Logger
+	cfg      *config.Config
+}
+
+func (bc *benchBridge) BeforeBanch(b *testing.B) {
+	for i := 1; i <= 100; i++ {
+		_, err := bc.source.Exec(context.Background(), "INSERT INTO city.users (id, username, password, name, email) VALUES (?, ?, ?, ?, ?)", i, "bob", "12345", "Bob", "bob@email.com")
+		require.NoError(b, err)
+	}
+}
+
+func (bc *benchBridge) AfterBanch(b *testing.B) {
+	if bc.bridge != nil {
+		err := bc.bridge.Close()
+		assert.NoError(b, err)
+	}
+
+	_, err := bc.source.Exec(context.Background(), "TRUNCATE city.users")
+	assert.NoError(b, err)
+
+	_, err = bc.upstream.Exec(context.Background(), "TRUNCATE town.clients")
+	assert.NoError(b, err)
+
+	dataDir := path.Dir(bc.cfg.App.DataFile)
+	err = os.RemoveAll(dataDir)
+	assert.NoError(b, err)
+}
+
+func (bc *benchBridge) hasSyncedData(b *testing.B, rows int) bool {
+	res := bc.upstream.QueryRow(context.Background(), "SELECT COUNT(*) FROM town.clients")
+	var cnt int
+	err := res.Scan(&cnt)
+	if assert.NoError(b, err) {
+		return cnt == rows
+	}
+
+	return false
+}
+
+func newBenchBridge(b *testing.B) *benchBridge {
+	if testing.Short() {
+		b.Skip("test requires dev env - skipping it in a short mode.")
+	}
+
+	cfgPath, err := filepath.Abs("testdata/cfg.yml")
+	require.NoError(b, err)
+
+	cfg, err := config.ReadFromFile(cfgPath)
+	require.NoError(b, err)
+	require.NotNil(b, cfg)
+
+	logger := zerolog.New(zerolog.NewConsoleWriter())
+
+	sOpts := cfg.Replication.SourceOpts
+	sClient, err := client.New(&client.Config{
+		Addr:       sOpts.Addr,
+		User:       sOpts.User,
+		Password:   sOpts.Password,
+		Database:   sOpts.Database,
+		Charset:    sOpts.Charset,
+		MaxRetries: 2,
+	})
+	require.NoError(b, err)
+
+	uOpts := cfg.Replication.UpstreamOpts
+	uClient, err := client.New(&client.Config{
+		Addr:           uOpts.Addr,
+		User:           uOpts.User,
+		Password:       uOpts.Password,
+		Database:       uOpts.Database,
+		Charset:        uOpts.Charset,
+		MaxRetries:     uOpts.MaxRetries,
+		MaxOpenConns:   uOpts.MaxOpenConns,
+		MaxIdleConns:   uOpts.MaxIdleConns,
+		ConnectTimeout: uOpts.ConnectTimeout,
+		WriteTimeout:   uOpts.WriteTimeout,
+	})
+	require.NoError(b, err)
+
+	factory := &baseFactory{
+		table: "clients",
+		skip:  []string{"username", "password"},
+	}
+
+	br, err := New(cfg, factory, logger)
+	require.NoError(b, err)
+
+	return &benchBridge{
+		bridge: br,
+
+		source:   sClient,
+		upstream: uClient,
+		logger:   logger,
+		cfg:      cfg,
+	}
+}
+
+func BenchmarkDumpWithoutTransaction(b *testing.B) {
+	br := newBenchBridge(b)
+	br.BeforeBanch(b)
+	TESTDUMP = true
+
+	for i := 0; i < b.N; i++ {
+		dumpPath := br.cfg.Replication.SourceOpts.Dump.ExecPath
+		if !assert.FileExists(b, dumpPath) {
+			b.Skip("test requires mysqldump utility")
+		}
+
+		rows := 100
+		go func() {
+			err := br.bridge.Run()
+			assert.NoError(b, err)
+		}()
+
+		assert.Eventually(b, br.bridge.Dumping, 100*time.Millisecond, 5*time.Millisecond)
+		assert.False(b, br.bridge.Running())
+
+		<-br.bridge.canal.WaitDumpDone()
+
+		assert.Eventually(b, func() bool {
+			return !br.bridge.Dumping()
+		}, 100*time.Millisecond, 5*time.Millisecond)
+		assert.True(b, br.bridge.Running())
+
+		require.Eventually(b, func() bool {
+			return br.hasSyncedData(b, rows)
+		}, 10*time.Second, 50*time.Millisecond)
+
+		err := br.bridge.Close()
+		assert.NoError(b, err)
+
+		assert.False(b, br.bridge.Dumping())
+		assert.False(b, br.bridge.Running())
+	}
+
+	TESTDUMP = false
+	br.AfterBanch(b)
+}
+
+func BenchmarkDumpWithTransaction(b *testing.B) {
+	br := newBenchBridge(b)
+	br.BeforeBanch(b)
+
+	for i := 0; i < b.N; i++ {
+		dumpPath := br.cfg.Replication.SourceOpts.Dump.ExecPath
+		if !assert.FileExists(b, dumpPath) {
+			b.Skip("test requires mysqldump utility")
+		}
+
+		rows := 100
+		go func() {
+			err := br.bridge.Run()
+			assert.NoError(b, err)
+		}()
+
+		assert.Eventually(b, br.bridge.Dumping, 100*time.Millisecond, 5*time.Millisecond)
+		assert.False(b, br.bridge.Running())
+
+		<-br.bridge.canal.WaitDumpDone()
+
+		assert.Eventually(b, func() bool {
+			return !br.bridge.Dumping()
+		}, 100*time.Millisecond, 5*time.Millisecond)
+		assert.True(b, br.bridge.Running())
+
+		require.Eventually(b, func() bool {
+			return br.hasSyncedData(b, rows)
+		}, 10*time.Second, 50*time.Millisecond)
+
+		err := br.bridge.Close()
+		assert.NoError(b, err)
+
+		assert.False(b, br.bridge.Dumping())
+		assert.False(b, br.bridge.Running())
+	}
+
+	br.AfterBanch(b)
 }

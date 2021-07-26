@@ -59,3 +59,7 @@ func (c *SQLClient) QueryRow(ctx context.Context, query string, args ...interfac
 func (c *SQLClient) Close() error {
 	return c.db.Close()
 }
+
+func (c *SQLClient) StartTransaction() (*sql.Tx, error) {
+	return c.db.BeginTx(context.Background(), nil)
+}
