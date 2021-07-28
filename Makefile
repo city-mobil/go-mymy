@@ -32,6 +32,7 @@ run: build
 
 .PHONY: run_banch
 run_banch: build
+	rm -f bin/state.info
 	bin/${BINARY_BANCH} -config=config/banch.conf.yml
 
 .PHONY: run_short_tests

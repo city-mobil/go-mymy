@@ -4,13 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io"
-	"log/syslog"
-	"os"
-	"os/signal"
-	"path"
-	"syscall"
-
 	"github.com/city-mobil/go-mymy/internal/adapter"
 	"github.com/city-mobil/go-mymy/internal/bridge"
 	"github.com/city-mobil/go-mymy/internal/client"
@@ -22,6 +15,12 @@ import (
 	sidlog "github.com/siddontang/go-log/log"
 	"golang.org/x/sys/unix"
 	"gopkg.in/natefinch/lumberjack.v2"
+	"io"
+	"log/syslog"
+	"os"
+	"os/signal"
+	"path"
+	"syscall"
 )
 
 var (
@@ -82,7 +81,7 @@ func main() {
 
 	truncateBase(sClient, uClient, logger)
 
-	rows := 5000
+	rows := 200
 
 	// Prepare initial data.
 	for i := 1; i <= rows; i++ {
@@ -96,34 +95,10 @@ func main() {
 		logger.Fatal().Err(err).Msg("not enough data in the source database")
 	}
 
-	//go func() {
-	//	start := time.Now()
-	//	ticker := time.NewTicker(50 * time.Microsecond)
-	//	init := false
-	//	for {
-	//		<-ticker.C
-	//		if !init && b.Dumping() {
-	//			init = true
-	//			continue
-	//		}
-	//
-	//		if init && (!b.Dumping() || !b.Running()) {
-	//			duration := time.Since(start)
-	//			fmt.Println("DONE", duration.Microseconds())
-	//			return
-	//		}
-	//	}
-	//}()
-
 	go func() {
 		errRun := b.Run()
 		if errRun != nil {
 			logger.Err(errRun).Msg("got sync error")
-		}
-
-		errClose := b.Close()
-		if errClose != nil {
-			logger.Err(errClose).Msg("got error on closing replicator")
 		}
 	}()
 
