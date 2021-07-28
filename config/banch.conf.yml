@@ -1,13 +1,17 @@
 app:
   listen_addr: ':8081'
-  data_file: '/tmp/go_mymy/state.info'
+  data_file: 'state.info'
   plugin_dir: 'plugins'
   health:
     seconds_behind_master: 5
   logging:
-    level: 'debug'
+    level: 'info'
     syslog_enabled: false
-    file_enabled: false
+    file_enabled: true
+    file_name: 'logs/mymy.dev.log'
+    file_max_size: 256
+    file_max_backups: 3
+    file_max_age: 5
 
 replication:
   server_id: 17389
@@ -43,4 +47,5 @@ replication:
         table: 'users'
       upstream:
         plugin:
-          name: 'dummy'
+          name: 'mymy_filter'
+          config: 'plugins/filter.plugin.yml'

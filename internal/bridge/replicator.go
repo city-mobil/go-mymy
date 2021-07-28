@@ -20,6 +20,7 @@ import (
 )
 
 const eventsBufSize = 4096
+const dumpForceInterval = 1 * time.Second
 
 var ErrRuleNotExist = errors.New("rule is not exist")
 
@@ -54,6 +55,7 @@ func New(cfg *config.Config, ehFactory EventHandlerFactory, logger zerolog.Logge
 		syncedAt:  atomic.NewInt64(0),
 		syncCh:    make(chan interface{}, eventsBufSize),
 		closeOnce: &sync.Once{},
+		dumpSize:  cfg.Replication.SourceOpts.Dump.DumpSize,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -181,8 +183,6 @@ func (b *Bridge) newCanal(cfg *config.Config) error {
 	canalCfg.Dump.SkipMasterData = myCfg.Dump.SkipMasterData
 	canalCfg.Dump.ExtraOptions = myCfg.Dump.ExtraOptions
 
-	b.dumpSize = myCfg.Dump.DumpSize
-
 	syncOnly := make([]string, 0, len(cfg.Replication.Rules))
 	for _, mapping := range cfg.Replication.Rules {
 		regex := fmt.Sprintf("%s\\.%s", myCfg.Database, mapping.Source.Table)
@@ -261,7 +261,19 @@ func (b *Bridge) Run() error {
 	go func() {
 		defer wg.Done()
 
-		err := b.syncLoop()
+		start := time.Now()
+		err := b.dumpLoop()
+		if err != nil {
+			errCh <- fmt.Errorf("dump loop error: %w", err)
+			b.cancel()
+
+			return
+		}
+
+		duration := time.Since(start)
+		fmt.Println("DONE", duration.Microseconds())
+
+		err = b.syncLoop()
 		if err != nil {
 			errCh <- fmt.Errorf("sync loop error: %w", err)
 			b.cancel()
@@ -304,16 +316,52 @@ func (b *Bridge) Run() error {
 	return multi
 }
 
-func (b *Bridge) syncLoop() error {
-	errCh := make(chan error, 1)
-	batchCh := make(chan batch)
+func (b *Bridge) dumpLoop() (err error) {
+	ticker := time.NewTicker(dumpForceInterval)
+	defer ticker.Stop()
+
+	store := batch{}
 	defer func() {
-		close(errCh)
-		close(batchCh)
+		if err == nil {
+			err = b.doBatchInTransaction(store)
+		}
 	}()
 
-	b.goBatch(batchCh, errCh)
+	for {
+		select {
+		case got := <-b.syncCh:
+			switch v := got.(type) {
+			case *savePos:
+				err = b.stateSaver.save(v.pos, v.force)
+				if err != nil {
+					return err
+				}
+			case batch:
+				store = append(store, v...)
+				if len(store) >= b.dumpSize {
+					err = b.doBatchInTransaction(store)
+					if err != nil {
+						return err
+					}
 
+					store = batch{}
+				}
+			}
+			b.syncedAt.Store(time.Now().Unix())
+		case <-ticker.C:
+			err = b.doBatchInTransaction(store)
+			if err != nil {
+				return err
+			}
+		case <-b.canal.WaitDumpDone():
+			return nil
+		case <-b.ctx.Done():
+			return nil
+		}
+	}
+}
+
+func (b *Bridge) syncLoop() error {
 	for {
 		select {
 		case got := <-b.syncCh:
@@ -324,13 +372,9 @@ func (b *Bridge) syncLoop() error {
 					return err
 				}
 			case batch:
-				if b.Dumping() {
-					batchCh <- v
-				} else {
-					err := b.doBatch(v)
-					if err != nil {
-						return err
-					}
+				err := b.doBatch(v)
+				if err != nil {
+					return err
 				}
 			}
 			b.syncedAt.Store(time.Now().Unix())
@@ -340,84 +384,21 @@ func (b *Bridge) syncLoop() error {
 	}
 }
 
-func (b *Bridge) goBatch(batchCh chan batch, errCh chan error) {
-	go func() {
-		store := batch{}
-		ticker := time.NewTicker(500 * time.Millisecond)
-		done := make(chan bool)
+func (b *Bridge) doBatchInTransaction(queries batch) error {
+	if len(queries) == 0 {
+		return nil
+	}
 
-		go func() {
-			tick := time.NewTicker(500 * time.Millisecond)
-			select {
-			case <-tick.C:
-				if !b.Dumping() {
-					done <- true
-					if len(store) != 0 {
-						err := b.doTransactionBatch(store) // resetting everything that's left
-						if err != nil {
-							errCh <- err
-
-							return
-						}
-					}
-				}
-			}
-		}()
-
-		for {
-			select {
-			case <-done:
-				return
-			case got := <-batchCh:
-				store = append(store, got...)
-				if len(store) >= b.dumpSize {
-					err := b.doTransactionBatch(store)
-					if err != nil {
-						errCh <- err
-
-						return
-					}
-
-					store = batch{}
-				}
-
-				ticker.Reset(500 * time.Millisecond)
-			case <-ticker.C:
-				err := b.doTransactionBatch(store)
-				if err != nil {
-					errCh <- err
-
-					return
-				}
-			}
-		}
-	}()
-}
-
-func (b *Bridge) doTransactionBatch(queries batch) error {
 	tn, err := b.upstream.StartTransaction()
 	if err != nil {
 		return err
 	}
 
-	for _, query := range queries {
-		q, args, err := query.SQL()
-		if err != nil {
-			b.logger.Err(err).
-				Str("query", fmt.Sprintf("%+v", query)).
-				Msg("could not convert to SQL statement")
-		}
+	err = b.doBatch(queries)
+	if err != nil {
+		_ = tn.Rollback()
 
-		_, err = tn.ExecContext(context.Background(), q, args...)
-		if err != nil {
-			b.logger.Err(err).
-				Str("query", q).
-				Str("args", fmt.Sprintf("%+v", args)).
-				Msg("could not exec SQL query")
-			_ = tn.Rollback()
-
-			return err
-		}
+		return err
 	}
 
 	return tn.Commit()
@@ -507,9 +488,4 @@ func (b *Bridge) runBackgroundJobs() {
 			}
 		}
 	}()
-}
-
-// changeDumpSize used for test.
-func (b *Bridge) changeDumpSize(size int) {
-	b.dumpSize = size
 }
