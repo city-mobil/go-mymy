@@ -632,7 +632,9 @@ func newBenchBridge(b *testing.B) *benchBridge {
 func BenchmarkDumpWithoutTransaction(b *testing.B) {
 	br := newBenchBridge(b)
 	br.BeforeBanch(b)
-	TESTDUMP = true
+	br.bridge.changeDumpSize(1)
+
+	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
 		dumpPath := br.cfg.Replication.SourceOpts.Dump.ExecPath
@@ -667,13 +669,15 @@ func BenchmarkDumpWithoutTransaction(b *testing.B) {
 		assert.False(b, br.bridge.Running())
 	}
 
-	TESTDUMP = false
 	br.AfterBanch(b)
 }
 
 func BenchmarkDumpWithTransaction(b *testing.B) {
 	br := newBenchBridge(b)
 	br.BeforeBanch(b)
+	br.bridge.changeDumpSize(100)
+
+	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
 		dumpPath := br.cfg.Replication.SourceOpts.Dump.ExecPath
