@@ -1,0 +1,51 @@
+app:
+  listen_addr: ':8081'
+  data_file: 'state.info'
+  plugin_dir: 'plugins'
+  health:
+    seconds_behind_master: 5
+  logging:
+    level: 'info'
+    syslog_enabled: false
+    file_enabled: true
+    file_name: 'logs/mymy.dev.log'
+    file_max_size: 256
+    file_max_backups: 3
+    file_max_age: 5
+
+replication:
+  server_id: 17389
+  gtid_mode: true
+
+  source:
+    dump:
+      exec_path: ''
+      skip_master_data: false
+      extra_options:
+        - '--column-statistics=0'
+      dump_size: 50
+    addr: '127.0.0.1:13306'
+    user: 'repl'
+    password: 'repl'
+    database: 'city'
+    charset: 'utf8'
+
+  upstream:
+    addr: '127.0.0.1:13307'
+    user: 'repl'
+    password: 'repl'
+    database: 'town'
+    charset: 'utf8'
+    max_retries: 3
+    max_open_conns: 500
+    max_idle_conns: 500
+    connect_timeout: '500ms'
+    write_timeout: '500ms'
+
+  rules:
+    - source:
+        table: 'users'
+      upstream:
+        plugin:
+          name: 'mymy_filter'
+          config: 'plugins/filter.plugin.yml'

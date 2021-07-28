@@ -261,6 +261,7 @@ func (b *Bridge) Run() error {
 	go func() {
 		defer wg.Done()
 
+		start := time.Now()
 		err := b.dumpLoop()
 		if err != nil {
 			errCh <- fmt.Errorf("dump loop error: %w", err)
@@ -268,6 +269,9 @@ func (b *Bridge) Run() error {
 
 			return
 		}
+
+		duration := time.Since(start)
+		fmt.Println("DONE", duration.Microseconds())
 
 		err = b.syncLoop()
 		if err != nil {
