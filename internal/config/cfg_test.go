@@ -44,7 +44,7 @@ func TestReadFromFile_ValidPath(t *testing.T) {
 	assert.True(t, cfg.Replication.GTIDMode)
 
 	source := cfg.Replication.SourceOpts
-	assert.NotEqual(t, "", source.Dump.ExecPath)
+	assert.Equal(t, "/usr/bin/mysqldump", source.Dump.ExecPath)
 	assert.False(t, source.Dump.SkipMasterData)
 	assert.Equal(t, []string{"--column-statistics=0"}, source.Dump.ExtraOptions)
 	assert.Equal(t, "127.0.0.1:3306", source.Addr)

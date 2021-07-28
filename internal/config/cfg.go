@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"io/ioutil"
 	"os"
 	"time"
@@ -21,8 +20,6 @@ const (
 	defaultLogFileMaxSize     = 256
 	defaultLogFileMaxBackups  = 3
 	defaultLogFileMaxAge      = 5
-	defaultLinuxDumpExecPath  = "/usr/bin/mysqldump"
-	defaultMacDumpExecPath    = "/usr/local/bin/mysqldump"
 	defaultMaxRetries         = 5
 	defaultCharset            = "utf8mb4"
 	defaultMaxOpenConns       = 200
@@ -115,43 +112,39 @@ func (c *SourceConfig) withDefaults() {
 		return
 	}
 
-	c.Dump.ExecPath = getDefaultExecPath(c.Dump.ExecPath)
+	if c.Dump.ExecPath == "" {
+		c.Dump.ExecPath = findDumpExecPath()
+	}
+
 	c.Charset = defaultCharset
 	if c.Dump.DumpSize == 0 {
 		c.Dump.DumpSize = defaultDumpSize
 	}
 }
 
-func getDefaultExecPath(path string) string {
-	var err error
-	if path == defaultLinuxDumpExecPath {
-		if err = checkExistFile(path); err != nil {
-			return defaultMacDumpExecPath
-		}
-	} else {
-		if err = checkExistFile(path); err != nil {
-			if err = checkExistFile(defaultLinuxDumpExecPath); err != nil {
-				return defaultMacDumpExecPath
-			}
-		} else {
+func findDumpExecPath() string {
+	findPath := []string{"/usr/bin/mysqldump", "/usr/local/bin/mysqldump"}
+
+	for _, path := range findPath {
+		if isFileExist(path) {
 			return path
 		}
 	}
 
-	return defaultLinuxDumpExecPath
+	return ""
 }
 
-func checkExistFile(path string) error {
+func isFileExist(path string) bool {
 	info, err := os.Lstat(path)
 	if err != nil {
-		return err
+		return false
 	}
 
 	if info.IsDir() {
-		return fmt.Errorf("%q is a directory", path)
+		return false
 	}
 
-	return nil
+	return true
 }
 
 type UpstreamConfig struct {
