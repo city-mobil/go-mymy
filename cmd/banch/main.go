@@ -81,7 +81,7 @@ func main() {
 
 	truncateBase(sClient, uClient, logger)
 
-	rows := 200
+	rows := 2000
 
 	// Prepare initial data.
 	for i := 1; i <= rows; i++ {

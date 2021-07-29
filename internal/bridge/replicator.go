@@ -271,7 +271,7 @@ func (b *Bridge) Run() error {
 		}
 
 		duration := time.Since(start)
-		fmt.Println("DONE", duration.Microseconds())
+		fmt.Println("DONE", duration.Milliseconds())
 
 		err = b.syncLoop()
 		if err != nil {
@@ -318,47 +318,116 @@ func (b *Bridge) Run() error {
 
 func (b *Bridge) dumpLoop() (err error) {
 	ticker := time.NewTicker(dumpForceInterval)
-	defer ticker.Stop()
+	errCh := make(chan error)
+	done := atomic.NewBool(false)
+	stop := atomic.NewBool(false)
+	wait := make(chan bool)
 
 	store := batch{}
+
 	defer func() {
-		if err == nil {
-			err = b.doBatchInTransaction(store)
-		}
+		ticker.Stop()
+		close(errCh)
+		close(wait)
 	}()
 
-	for {
-		select {
-		case got := <-b.syncCh:
+	go func() {
+		for got := range b.syncCh {
 			switch v := got.(type) {
 			case *savePos:
 				err = b.stateSaver.save(v.pos, v.force)
 				if err != nil {
-					return err
+					errCh <- err
+					return
 				}
 			case batch:
+				fmt.Println(len(b.syncCh))
 				store = append(store, v...)
 				if len(store) >= b.dumpSize {
 					err = b.doBatchInTransaction(store)
 					if err != nil {
-						return err
+						errCh <- err
+						return
 					}
 
 					store = batch{}
 				}
 			}
 			b.syncedAt.Store(time.Now().Unix())
+
+			if stop.Load() {
+				wait <- true
+				return
+			}
+
+			if done.Load() && len(b.syncCh) == 0 {
+				wait <- true
+				break
+			}
+		}
+	}()
+
+	for {
+		select {
 		case <-ticker.C:
 			err = b.doBatchInTransaction(store)
 			if err != nil {
+				stop.Swap(true)
+				<-wait
 				return err
 			}
+
+			store = batch{}
 		case <-b.canal.WaitDumpDone():
+			done.Swap(true)
+			<-wait
 			return nil
 		case <-b.ctx.Done():
+			stop.Swap(true)
+			<-wait
 			return nil
+		case err = <-errCh:
+			stop.Swap(true)
+			<-wait
+			return err
 		}
 	}
+
+	//for {
+	//	select {
+	//	case got := <-b.syncCh:
+	//		switch v := got.(type) {
+	//		case *savePos:
+	//			err = b.stateSaver.save(v.pos, v.force)
+	//			if err != nil {
+	//				return err
+	//			}
+	//		case batch:
+	//			fmt.Println(len(b.syncCh))
+	//			store = append(store, v...)
+	//			if len(store) >= b.dumpSize {
+	//				err = b.doBatchInTransaction(store)
+	//				if err != nil {
+	//					return err
+	//				}
+	//
+	//				store = batch{}
+	//			}
+	//		}
+	//		b.syncedAt.Store(time.Now().Unix())
+	//	case <-ticker.C:
+	//		err = b.doBatchInTransaction(store)
+	//		if err != nil {
+	//			return err
+	//		}
+	//
+	//		store = batch{}
+	//	case <-b.canal.WaitDumpDone():
+	//		return nil
+	//	case <-b.ctx.Done():
+	//		return nil
+	//	}
+	//}
 }
 
 func (b *Bridge) syncLoop() error {
@@ -372,6 +441,7 @@ func (b *Bridge) syncLoop() error {
 					return err
 				}
 			case batch:
+				fmt.Println("NOT DUMP", len(b.syncCh))
 				err := b.doBatch(v)
 				if err != nil {
 					return err
