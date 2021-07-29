@@ -1,5 +1,4 @@
 BINARY=mymy
-BINARY_BANCH=banch
 VERSION=`git describe --tags --dirty --always`
 COMMIT=`git rev-parse HEAD`
 BUILD_DATE=`date +%FT%T%z`
@@ -16,7 +15,7 @@ build: gen
 	go build ${LDFLAGS} -o bin/${BINARY} cmd/mymy/main.go
 	go build -buildmode=plugin -o bin/plugins/mymy_filter.so cmd/plugins/filter/main.go
 	cp cmd/plugins/filter/cfg.yml bin/plugins/filter.plugin.yml
-	go build ${LDFLAGS} -o bin/${BINARY_BANCH} cmd/banch/main.go
+	go build -o bin/dump_benchmark cmd/dump_benchmark/main.go
 
 .PHONY: lint
 lint:
@@ -30,10 +29,10 @@ fmt:
 run: build
 	bin/${BINARY} -config=config/dev.conf.yml
 
-.PHONY: run_banch
-run_banch: build
+.PHONY: run_dump_benchmark
+run_dump_benchmark: build
 	rm -f bin/state.info
-	bin/${BINARY_BANCH} -config=config/banch.conf.yml
+	bin/dump_benchmark -config=config/banch.conf.yml
 
 .PHONY: run_short_tests
 run_short_tests:

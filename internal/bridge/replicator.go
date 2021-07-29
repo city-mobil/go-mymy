@@ -20,7 +20,7 @@ import (
 )
 
 const eventsBufSize = 4096
-const dumpForceInterval = 1 * time.Second
+const dumpPollInterval = 25 * time.Millisecond
 
 var ErrRuleNotExist = errors.New("rule is not exist")
 
@@ -41,21 +41,23 @@ type Bridge struct {
 	running  *atomic.Bool
 	syncedAt *atomic.Int64
 
-	syncCh    chan interface{}
-	closeOnce *sync.Once
+	dumpDoneCh chan struct{}
+	syncCh     chan interface{}
+	closeOnce  *sync.Once
 
 	dumpSize int
 }
 
 func New(cfg *config.Config, ehFactory EventHandlerFactory, logger zerolog.Logger) (*Bridge, error) {
 	b := &Bridge{
-		logger:    logger,
-		dumping:   atomic.NewBool(false),
-		running:   atomic.NewBool(false),
-		syncedAt:  atomic.NewInt64(0),
-		syncCh:    make(chan interface{}, eventsBufSize),
-		closeOnce: &sync.Once{},
-		dumpSize:  cfg.Replication.SourceOpts.Dump.DumpSize,
+		logger:     logger,
+		dumping:    atomic.NewBool(false),
+		running:    atomic.NewBool(false),
+		syncedAt:   atomic.NewInt64(0),
+		dumpDoneCh: make(chan struct{}),
+		syncCh:     make(chan interface{}, eventsBufSize),
+		closeOnce:  &sync.Once{},
+		dumpSize:   cfg.Replication.SourceOpts.Dump.DumpSize,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -257,11 +259,12 @@ func (b *Bridge) Run() error {
 	errCh := make(chan error, 2)
 
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
-		start := time.Now()
+		b.setDumping(true)
+
 		err := b.dumpLoop()
 		if err != nil {
 			errCh <- fmt.Errorf("dump loop error: %w", err)
@@ -270,23 +273,14 @@ func (b *Bridge) Run() error {
 			return
 		}
 
-		duration := time.Since(start)
-		fmt.Println("DONE", duration.Milliseconds())
+		b.setDumping(false)
+		b.setRunning(true)
 
 		err = b.syncLoop()
 		if err != nil {
 			errCh <- fmt.Errorf("sync loop error: %w", err)
 			b.cancel()
 		}
-	}()
-
-	b.setDumping(true)
-	go func() {
-		defer wg.Done()
-
-		<-b.canal.WaitDumpDone()
-		b.setDumping(false)
-		b.setRunning(true)
 	}()
 
 	var err error
@@ -316,118 +310,69 @@ func (b *Bridge) Run() error {
 	return multi
 }
 
-func (b *Bridge) dumpLoop() (err error) {
-	ticker := time.NewTicker(dumpForceInterval)
-	errCh := make(chan error)
-	done := atomic.NewBool(false)
-	stop := atomic.NewBool(false)
-	wait := make(chan bool)
+func (b *Bridge) dumpLoop() error {
+	defer close(b.dumpDoneCh)
 
-	store := batch{}
+	poller := time.NewTicker(dumpPollInterval)
+	defer poller.Stop()
 
-	defer func() {
-		ticker.Stop()
-		close(errCh)
-		close(wait)
-	}()
-
-	go func() {
-		for got := range b.syncCh {
-			switch v := got.(type) {
-			case *savePos:
-				err = b.stateSaver.save(v.pos, v.force)
-				if err != nil {
-					errCh <- err
-					return
-				}
-			case batch:
-				fmt.Println(len(b.syncCh))
-				store = append(store, v...)
-				if len(store) >= b.dumpSize {
-					err = b.doBatchInTransaction(store)
-					if err != nil {
-						errCh <- err
-						return
-					}
-
-					store = batch{}
-				}
-			}
-			b.syncedAt.Store(time.Now().Unix())
-
-			if stop.Load() {
-				wait <- true
-				return
-			}
-
-			if done.Load() && len(b.syncCh) == 0 {
-				wait <- true
+	store := make(batch, 0, b.dumpSize*2)
+	read := func(buf *batch, max int) error {
+		for txn := 0; txn < max; txn++ {
+			if len(b.syncCh) == 0 {
 				break
 			}
+
+			got := <-b.syncCh
+			switch v := got.(type) {
+			case *savePos:
+				err := b.stateSaver.save(v.pos, v.force)
+				if err != nil {
+					return err
+				}
+			case batch:
+				*buf = append(*buf, v...)
+			}
 		}
-	}()
+
+		return nil
+	}
 
 	for {
 		select {
-		case <-ticker.C:
-			err = b.doBatchInTransaction(store)
+		case <-poller.C:
+			err := read(&store, b.dumpSize)
 			if err != nil {
-				stop.Swap(true)
-				<-wait
 				return err
 			}
 
-			store = batch{}
+			if len(store) >= b.dumpSize {
+				err = b.doBatchInTransaction(store)
+				if err != nil {
+					return err
+				}
+				store = make(batch, 0, b.dumpSize*2)
+
+				b.syncedAt.Store(time.Now().Unix())
+			}
 		case <-b.canal.WaitDumpDone():
-			done.Swap(true)
-			<-wait
+			err := read(&store, len(b.syncCh))
+			if err != nil {
+				return err
+			}
+
+			err = b.doBatchInTransaction(store)
+			if err != nil {
+				return err
+			}
+
+			b.syncedAt.Store(time.Now().Unix())
+
 			return nil
 		case <-b.ctx.Done():
-			stop.Swap(true)
-			<-wait
 			return nil
-		case err = <-errCh:
-			stop.Swap(true)
-			<-wait
-			return err
 		}
 	}
-
-	//for {
-	//	select {
-	//	case got := <-b.syncCh:
-	//		switch v := got.(type) {
-	//		case *savePos:
-	//			err = b.stateSaver.save(v.pos, v.force)
-	//			if err != nil {
-	//				return err
-	//			}
-	//		case batch:
-	//			fmt.Println(len(b.syncCh))
-	//			store = append(store, v...)
-	//			if len(store) >= b.dumpSize {
-	//				err = b.doBatchInTransaction(store)
-	//				if err != nil {
-	//					return err
-	//				}
-	//
-	//				store = batch{}
-	//			}
-	//		}
-	//		b.syncedAt.Store(time.Now().Unix())
-	//	case <-ticker.C:
-	//		err = b.doBatchInTransaction(store)
-	//		if err != nil {
-	//			return err
-	//		}
-	//
-	//		store = batch{}
-	//	case <-b.canal.WaitDumpDone():
-	//		return nil
-	//	case <-b.ctx.Done():
-	//		return nil
-	//	}
-	//}
 }
 
 func (b *Bridge) syncLoop() error {
@@ -441,7 +386,6 @@ func (b *Bridge) syncLoop() error {
 					return err
 				}
 			case batch:
-				fmt.Println("NOT DUMP", len(b.syncCh))
 				err := b.doBatch(v)
 				if err != nil {
 					return err
@@ -540,6 +484,10 @@ func (b *Bridge) setDumping(v bool) {
 
 func (b *Bridge) Dumping() bool {
 	return b.dumping.Load()
+}
+
+func (b *Bridge) WaitDumpDone() <-chan struct{} {
+	return b.dumpDoneCh
 }
 
 func (b *Bridge) runBackgroundJobs() {

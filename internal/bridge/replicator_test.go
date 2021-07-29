@@ -186,16 +186,14 @@ func (s *bridgeSuite) TestDump() {
 	assert.Eventually(t, s.bridge.Dumping, 100*time.Millisecond, 5*time.Millisecond)
 	assert.False(t, s.bridge.Running())
 
-	<-s.bridge.canal.WaitDumpDone()
+	<-s.bridge.WaitDumpDone()
 
 	assert.Eventually(t, func() bool {
 		return !s.bridge.Dumping()
 	}, 100*time.Millisecond, 5*time.Millisecond)
 	assert.True(t, s.bridge.Running())
 
-	require.Eventually(t, func() bool {
-		return s.hasSyncedData(rows)
-	}, 10*time.Second, 50*time.Millisecond)
+	require.True(t, s.hasSyncedData(rows))
 
 	err := s.bridge.Close()
 	assert.NoError(t, err)
@@ -224,7 +222,7 @@ func (s *bridgeSuite) TestReplication() {
 		cancel()
 	}()
 
-	<-s.bridge.canal.WaitDumpDone()
+	<-s.bridge.WaitDumpDone()
 
 	tick := time.NewTicker(10 * time.Millisecond)
 	defer tick.Stop()
@@ -327,7 +325,7 @@ func (s *bridgeSuite) TestRenameColumn() {
 		assert.NoError(t, err)
 	}()
 
-	<-s.bridge.canal.WaitDumpDone()
+	<-s.bridge.WaitDumpDone()
 
 	_, err := s.source.Exec(context.Background(), "INSERT INTO city.users (username, password, name, email) VALUES (?, ?, ?, ?)", "bob", "12345", "Bob", "bob@email.com")
 	require.NoError(t, err)
@@ -411,7 +409,7 @@ func (s *bridgeSuite) TestAlterHandler() {
 		assert.NoError(t, err)
 	}()
 
-	<-s.bridge.canal.WaitDumpDone()
+	<-s.bridge.WaitDumpDone()
 
 	_, err := s.source.Exec(context.Background(), "ALTER TABLE city.users CHANGE `name` `new_name` varchar(50)")
 	require.NoError(t, err)
@@ -455,7 +453,7 @@ func (s *bridgeSuite) TestHandlerReturnsError() {
 		assert.Error(t, err)
 	}()
 
-	<-s.bridge.canal.WaitDumpDone()
+	<-s.bridge.WaitDumpDone()
 
 	_, err := s.source.Exec(context.Background(), "INSERT INTO city.users (username, password, name, email) VALUES (?, ?, ?, ?)", "bob", "12345", "Bob", "bob@email.com")
 	require.NoError(t, err)
@@ -500,7 +498,7 @@ func (s *bridgeSuite) TestDumpError() {
 		assert.Error(t, runErr)
 	}()
 
-	<-s.bridge.canal.WaitDumpDone()
+	<-s.bridge.WaitDumpDone()
 
 	wg.Wait()
 
