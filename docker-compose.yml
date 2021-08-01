@@ -24,5 +24,6 @@ services:
     command: --bind-address=0.0.0.0 --ssl=0 --default-authentication-plugin=mysql_native_password
     volumes:
       - ./docker/upstream/init.d:/docker-entrypoint-initdb.d
+      - ./bin/tmp:/opt/dump:ro
     ports:
       - '13307:3306'

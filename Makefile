@@ -31,6 +31,7 @@ run: build
 
 .PHONY: run_dump_benchmark
 run_dump_benchmark: build
+	rm -rf bin/tmp/*
 	rm -f bin/state.info
 	bin/dump_benchmark -config=config/banch.conf.yml
 

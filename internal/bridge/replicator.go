@@ -19,8 +19,12 @@ import (
 	"github.com/city-mobil/go-mymy/pkg/mymy"
 )
 
-const eventsBufSize = 4096
-const dumpPollInterval = 25 * time.Millisecond
+const (
+	eventsBufSize    = 4096
+	dumpPollInterval = 25 * time.Millisecond
+	purifierInterval = 140 * time.Millisecond
+	defRowsFileLimit = 500
+)
 
 var ErrRuleNotExist = errors.New("rule is not exist")
 
@@ -45,19 +49,24 @@ type Bridge struct {
 	syncCh     chan interface{}
 	closeOnce  *sync.Once
 
-	dumpSize int
+	dumpSize      int
+	rowsFileLimit int
+
+	loader *loader
 }
 
 func New(cfg *config.Config, ehFactory EventHandlerFactory, logger zerolog.Logger) (*Bridge, error) {
 	b := &Bridge{
-		logger:     logger,
-		dumping:    atomic.NewBool(false),
-		running:    atomic.NewBool(false),
-		syncedAt:   atomic.NewInt64(0),
-		dumpDoneCh: make(chan struct{}),
-		syncCh:     make(chan interface{}, eventsBufSize),
-		closeOnce:  &sync.Once{},
-		dumpSize:   cfg.Replication.SourceOpts.Dump.DumpSize,
+		logger:        logger,
+		dumping:       atomic.NewBool(false),
+		running:       atomic.NewBool(false),
+		syncedAt:      atomic.NewInt64(0),
+		dumpDoneCh:    make(chan struct{}),
+		syncCh:        make(chan interface{}, eventsBufSize),
+		closeOnce:     &sync.Once{},
+		dumpSize:      cfg.Replication.SourceOpts.Dump.DumpSize,
+		rowsFileLimit: defRowsFileLimit,
+		loader:        newLoader(logger),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -316,6 +325,9 @@ func (b *Bridge) dumpLoop() error {
 	poller := time.NewTicker(dumpPollInterval)
 	defer poller.Stop()
 
+	purifier := time.NewTicker(purifierInterval)
+	defer purifier.Stop()
+
 	store := make(batch, 0, b.dumpSize*2)
 	read := func(buf *batch, max int) error {
 		for txn := 0; txn < max; txn++ {
@@ -347,13 +359,19 @@ func (b *Bridge) dumpLoop() error {
 			}
 
 			if len(store) >= b.dumpSize {
-				err = b.doBatchInTransaction(store)
+				err = b.putBatchInFile(store)
 				if err != nil {
 					return err
 				}
+
 				store = make(batch, 0, b.dumpSize*2)
 
 				b.syncedAt.Store(time.Now().Unix())
+			}
+		case <-purifier.C:
+			err := b.purifierLoop()
+			if err != nil {
+				return err
 			}
 		case <-b.canal.WaitDumpDone():
 			err := read(&store, len(b.syncCh))
@@ -361,7 +379,12 @@ func (b *Bridge) dumpLoop() error {
 				return err
 			}
 
-			err = b.doBatchInTransaction(store)
+			err = b.putBatchInFile(store)
+			if err != nil {
+				return err
+			}
+
+			err = b.loadDataToUpstream()
 			if err != nil {
 				return err
 			}
@@ -398,24 +421,12 @@ func (b *Bridge) syncLoop() error {
 	}
 }
 
-func (b *Bridge) doBatchInTransaction(queries batch) error {
+func (b *Bridge) putBatchInFile(queries batch) error {
 	if len(queries) == 0 {
 		return nil
 	}
 
-	tn, err := b.upstream.StartTransaction()
-	if err != nil {
-		return err
-	}
-
-	err = b.doBatch(queries)
-	if err != nil {
-		_ = tn.Rollback()
-
-		return err
-	}
-
-	return tn.Commit()
+	return b.loader.placeReq(queries, b.upstream.DBName)
 }
 
 func (b *Bridge) doBatch(queries batch) error {
@@ -507,3 +518,52 @@ func (b *Bridge) runBackgroundJobs() {
 		}
 	}()
 }
+
+func (b *Bridge) loadDataToUpstream() error {
+	for t, f := range b.loader.data {
+		err := b.loadDataOneFileToUpstream(f, t)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (b *Bridge) loadDataOneFileToUpstream(f *file, table string) error {
+	q := fmt.Sprintf(
+		`load data infile '%s' into table %s  fields terminated by ',' lines terminated by '\n'`,
+		f.dockerPath, table,
+	)
+	_, err := b.upstream.Exec(context.Background(), q)
+	return err
+}
+
+func (b *Bridge) purifierLoop() error {
+	for t, f := range b.loader.data {
+		if f.cntRows < b.rowsFileLimit {
+			continue
+		}
+
+		err := b.loadDataOneFileToUpstream(f, t)
+		if err != nil {
+			return err
+		}
+
+		err = f.descriptor.Truncate(0)
+		if err != nil {
+			return err
+		}
+
+		_, err = f.descriptor.Seek(0, 0)
+		if err != nil {
+			return err
+		}
+
+		f.cntRows = 0
+	}
+
+	return nil
+}
+
+//load data infile '/opt/dump/employee_data_town.clients' into table town.clients  fields terminated by ','  lines terminated by '\n'
