@@ -50,9 +50,7 @@ func (l *loader) placeReq(queries batch, dbName string) error {
 	for _, query := range queries {
 		t := fmt.Sprintf("%s.%s", dbName, query.Table)
 		if _, ok := l.data[t]; !ok {
-			fmt.Println(2, t)
 			f, err := newFile(t)
-			fmt.Println(l.data)
 			if err != nil {
 				return err
 			}
@@ -95,9 +93,9 @@ func joinInterfaces(delim string, args []interface{}) (str string) {
 		return str
 	}
 
-	str = fmt.Sprintf("%v", args[0])
+	str = fmt.Sprintf(`"%v"`, args[0])
 	for i := 1; i < len(args); i++ {
-		str += fmt.Sprintf("%s%v", delim, args[i])
+		str += fmt.Sprintf(`%s"%v"`, delim, args[i])
 	}
 
 	return str

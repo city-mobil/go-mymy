@@ -532,7 +532,7 @@ func (b *Bridge) loadDataToUpstream() error {
 
 func (b *Bridge) loadDataOneFileToUpstream(f *file, table string) error {
 	q := fmt.Sprintf(
-		`load data infile '%s' into table %s  fields terminated by ',' lines terminated by '\n'`,
+		`load data infile '%s' into table %s  fields terminated by ',' enclosed by '"' lines terminated by '\n'`,
 		f.dockerPath, table,
 	)
 	_, err := b.upstream.Exec(context.Background(), q)
