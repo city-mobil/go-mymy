@@ -46,19 +46,19 @@ func newLoader(cfg *config.Config) *loader {
 	}
 }
 
-func (l *loader) placeReq(queries batch, dbName string) error {
+func (ld *loader) writeToFile(queries batch, dbName string) error {
 	for _, query := range queries {
 		t := fmt.Sprintf("%s.%s", dbName, query.Table)
-		if _, ok := l.data[t]; !ok {
-			f, err := newFile(t, l.localPathPrefix, l.dockerPathPrefix)
+		if _, ok := ld.data[t]; !ok {
+			f, err := newFile(t, ld.localPathPrefix, ld.dockerPathPrefix)
 			if err != nil {
 				return err
 			}
 
-			l.data[t] = f
+			ld.data[t] = f
 		}
 
-		err := l.writeRowInFile(query, t)
+		err := ld.writeRowInFile(query, t)
 		if err != nil {
 			return err
 		}
@@ -67,18 +67,18 @@ func (l *loader) placeReq(queries batch, dbName string) error {
 	return nil
 }
 
-func (l *loader) writeRowInFile(query *mymy.Query, table string) error {
+func (ld *loader) writeRowInFile(query *mymy.Query, table string) error {
 	args := make([]interface{}, len(query.Values))
 	for i, arg := range query.Values {
 		args[i] = arg.Value
 	}
 
-	err := l.data[table].writeRow(args)
+	err := ld.data[table].writeRow(args)
 	if err != nil {
 		return err
 	}
 
-	l.data[table].cntRows++
+	ld.data[table].cntRows++
 
 	return nil
 }
@@ -89,12 +89,15 @@ func (f *file) writeRow(args []interface{}) error {
 	return err
 }
 
-func joinInterfaces(delim string, args []interface{}) (str string) {
-	if len(args) == 0 {
-		return str
+func joinInterfaces(delim string, args []interface{}) string {
+	switch len(args) {
+	case 0:
+		return ""
+	case 1:
+		return fmt.Sprintf(`"%v"\n`, args[0])
 	}
 
-	str = fmt.Sprintf(`"%v"`, args[0])
+	str := fmt.Sprintf(`"%v"`, args[0])
 	for i := 1; i < len(args); i++ {
 		str += fmt.Sprintf(`%s"%v"`, delim, args[i])
 	}
@@ -102,8 +105,8 @@ func joinInterfaces(delim string, args []interface{}) (str string) {
 	return str + "\n"
 }
 
-func (l *loader) closeFiles() {
-	for _, f := range l.data {
+func (ld *loader) closeFiles() {
+	for _, f := range ld.data {
 		f.descriptor.Close()
 	}
 }

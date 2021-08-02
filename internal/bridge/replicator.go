@@ -493,7 +493,7 @@ func (b *Bridge) putBatchInFile(queries batch) error {
 		return nil
 	}
 
-	return b.loader.placeReq(queries, b.upstream.DBName)
+	return b.loader.writeToFile(queries, b.upstream.DBName)
 }
 
 func (b *Bridge) doBatch(queries batch) error {
