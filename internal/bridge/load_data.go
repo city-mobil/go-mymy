@@ -2,14 +2,10 @@ package bridge
 
 import (
 	"fmt"
-	"github.com/city-mobil/go-mymy/pkg/mymy"
-	"github.com/rs/zerolog"
 	"os"
-)
 
-const (
-	localPathPrefix  = "bin/tmp/employee_data_"
-	dockerPathPrefix = "/opt/dump/employee_data_"
+	"github.com/city-mobil/go-mymy/internal/config"
+	"github.com/city-mobil/go-mymy/pkg/mymy"
 )
 
 type file struct {
@@ -19,9 +15,9 @@ type file struct {
 	descriptor *os.File
 }
 
-func newFile(table string) (*file, error) {
-	lPath := fmt.Sprintf("%s%s", localPathPrefix, table)
-	dPath := fmt.Sprintf("%s%s", dockerPathPrefix, table)
+func newFile(table, localPathPrefix, dockerPathPrefix string) (*file, error) {
+	lPath := fmt.Sprintf("%s%s", completPrefix(localPathPrefix), table)
+	dPath := fmt.Sprintf("%s%s", completPrefix(dockerPathPrefix), table)
 	f, err := os.Create(lPath)
 	if err != nil {
 		return nil, err
@@ -35,14 +31,18 @@ func newFile(table string) (*file, error) {
 }
 
 type loader struct {
-	data   map[string]*file
-	logger zerolog.Logger
+	data             map[string]*file
+	rowsLimit        int
+	localPathPrefix  string
+	dockerPathPrefix string
 }
 
-func newLoader(logger zerolog.Logger) *loader {
+func newLoader(cfg *config.Config) *loader {
 	return &loader{
-		data:   make(map[string]*file),
-		logger: logger,
+		data:             make(map[string]*file),
+		rowsLimit:        cfg.Replication.SourceOpts.Dump.DumpSize,
+		localPathPrefix:  cfg.Replication.SourceOpts.Dump.LocalPathDumpFile,
+		dockerPathPrefix: cfg.Replication.SourceOpts.Dump.DockerPathDumpFile,
 	}
 }
 
@@ -50,7 +50,7 @@ func (l *loader) placeReq(queries batch, dbName string) error {
 	for _, query := range queries {
 		t := fmt.Sprintf("%s.%s", dbName, query.Table)
 		if _, ok := l.data[t]; !ok {
-			f, err := newFile(t)
+			f, err := newFile(t, l.localPathPrefix, l.dockerPathPrefix)
 			if err != nil {
 				return err
 			}
@@ -58,33 +58,34 @@ func (l *loader) placeReq(queries batch, dbName string) error {
 			l.data[t] = f
 		}
 
-		l.writeRowInFile(query, t)
+		err := l.writeRowInFile(query, t)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
-func (l *loader) writeRowInFile(query *mymy.Query, table string) {
-	_, args, err := query.SQL()
-	if err != nil {
-		l.logger.Err(err).
-			Str("query", fmt.Sprintf("%+v", query)).
-			Msg("could not convert to SQL statement")
+func (l *loader) writeRowInFile(query *mymy.Query, table string) error {
+	args := make([]interface{}, len(query.Values))
+	for i, arg := range query.Values {
+		args[i] = arg.Value
 	}
 
-	err = l.data[table].writeRow(args)
+	err := l.data[table].writeRow(args)
 	if err != nil {
-		l.logger.Err(err).
-			Str("query", fmt.Sprintf("%+v", query)).
-			Str("table", table).
-			Msg("it was not possible to write to the csv file")
-	} else {
-		l.data[table].cntRows++
+		return err
 	}
+
+	l.data[table].cntRows++
+
+	return nil
 }
 
 func (f *file) writeRow(args []interface{}) error {
-	_, err := fmt.Fprintf(f.descriptor, "%s\n", joinInterfaces(",", args))
+	_, err := f.descriptor.WriteString(joinInterfaces(",", args))
+
 	return err
 }
 
@@ -98,7 +99,23 @@ func joinInterfaces(delim string, args []interface{}) (str string) {
 		str += fmt.Sprintf(`%s"%v"`, delim, args[i])
 	}
 
-	return str
+	return str + "\n"
 }
 
-//load data infile '/opt/dump/employee_data_town.clients' into table town.clients  fields terminated by ','  lines terminated by '\n' - right;
+func (l *loader) closeFiles() {
+	for _, f := range l.data {
+		f.descriptor.Close()
+	}
+}
+
+func completPrefix(prefix string) string {
+	if prefix == "" {
+		return ""
+	}
+
+	if prefix[len(prefix)-1] != '/' {
+		prefix += "/"
+	}
+
+	return prefix + "employee_data_"
+}

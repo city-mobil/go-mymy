@@ -22,8 +22,6 @@ import (
 const (
 	eventsBufSize    = 4096
 	dumpPollInterval = 25 * time.Millisecond
-	purifierInterval = 140 * time.Millisecond
-	defRowsFileLimit = 500
 )
 
 var ErrRuleNotExist = errors.New("rule is not exist")
@@ -49,24 +47,23 @@ type Bridge struct {
 	syncCh     chan interface{}
 	closeOnce  *sync.Once
 
-	dumpSize      int
-	rowsFileLimit int
-
-	loader *loader
+	directDump bool
+	dumpSize   int
+	loader     *loader
 }
 
 func New(cfg *config.Config, ehFactory EventHandlerFactory, logger zerolog.Logger) (*Bridge, error) {
 	b := &Bridge{
-		logger:        logger,
-		dumping:       atomic.NewBool(false),
-		running:       atomic.NewBool(false),
-		syncedAt:      atomic.NewInt64(0),
-		dumpDoneCh:    make(chan struct{}),
-		syncCh:        make(chan interface{}, eventsBufSize),
-		closeOnce:     &sync.Once{},
-		dumpSize:      cfg.Replication.SourceOpts.Dump.DumpSize,
-		rowsFileLimit: defRowsFileLimit,
-		loader:        newLoader(logger),
+		logger:     logger,
+		dumping:    atomic.NewBool(false),
+		running:    atomic.NewBool(false),
+		syncedAt:   atomic.NewInt64(0),
+		dumpDoneCh: make(chan struct{}),
+		syncCh:     make(chan interface{}, eventsBufSize),
+		closeOnce:  &sync.Once{},
+		directDump: cfg.Replication.SourceOpts.Dump.DirectDump,
+		dumpSize:   cfg.Replication.SourceOpts.Dump.DumpSize,
+		loader:     newLoader(cfg),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -262,6 +259,7 @@ func (b *Bridge) newUpstream(cfg *config.Config) error {
 // until closed or meets errors.
 func (b *Bridge) Run() error {
 	defer b.setRunning(false)
+	defer b.loader.closeFiles()
 
 	go b.runBackgroundJobs()
 
@@ -274,7 +272,13 @@ func (b *Bridge) Run() error {
 
 		b.setDumping(true)
 
-		err := b.dumpLoop()
+		var err error
+		if b.directDump {
+			err = b.directDumpLoop()
+		} else {
+			err = b.dumpLoop()
+		}
+
 		if err != nil {
 			errCh <- fmt.Errorf("dump loop error: %w", err)
 			b.cancel()
@@ -319,14 +323,12 @@ func (b *Bridge) Run() error {
 	return multi
 }
 
+//nolint:cyclop,gocyclo
 func (b *Bridge) dumpLoop() error {
 	defer close(b.dumpDoneCh)
 
 	poller := time.NewTicker(dumpPollInterval)
 	defer poller.Stop()
-
-	purifier := time.NewTicker(purifierInterval)
-	defer purifier.Stop()
 
 	store := make(batch, 0, b.dumpSize*2)
 	read := func(buf *batch, max int) error {
@@ -364,14 +366,14 @@ func (b *Bridge) dumpLoop() error {
 					return err
 				}
 
+				err = b.purifierLoop()
+				if err != nil {
+					return err
+				}
+
 				store = make(batch, 0, b.dumpSize*2)
 
 				b.syncedAt.Store(time.Now().Unix())
-			}
-		case <-purifier.C:
-			err := b.purifierLoop()
-			if err != nil {
-				return err
 			}
 		case <-b.canal.WaitDumpDone():
 			err := read(&store, len(b.syncCh))
@@ -385,6 +387,71 @@ func (b *Bridge) dumpLoop() error {
 			}
 
 			err = b.loadDataToUpstream()
+			if err != nil {
+				return err
+			}
+
+			b.syncedAt.Store(time.Now().Unix())
+
+			return nil
+		case <-b.ctx.Done():
+			return nil
+		}
+	}
+}
+
+//nolint:cyclop
+func (b *Bridge) directDumpLoop() error {
+	defer close(b.dumpDoneCh)
+
+	poller := time.NewTicker(dumpPollInterval)
+	defer poller.Stop()
+
+	store := make(batch, 0, b.dumpSize*2)
+	read := func(buf *batch, max int) error {
+		for txn := 0; txn < max; txn++ {
+			if len(b.syncCh) == 0 {
+				break
+			}
+
+			got := <-b.syncCh
+			switch v := got.(type) {
+			case *savePos:
+				err := b.stateSaver.save(v.pos, v.force)
+				if err != nil {
+					return err
+				}
+			case batch:
+				*buf = append(*buf, v...)
+			}
+		}
+
+		return nil
+	}
+
+	for {
+		select {
+		case <-poller.C:
+			err := read(&store, b.dumpSize)
+			if err != nil {
+				return err
+			}
+
+			err = b.doBatch(store)
+			if err != nil {
+				return err
+			}
+			store = make(batch, 0, b.dumpSize*2)
+
+			b.syncedAt.Store(time.Now().Unix())
+
+		case <-b.canal.WaitDumpDone():
+			err := read(&store, len(b.syncCh))
+			if err != nil {
+				return err
+			}
+
+			err = b.doBatch(store)
 			if err != nil {
 				return err
 			}
@@ -536,12 +603,13 @@ func (b *Bridge) loadDataOneFileToUpstream(f *file, table string) error {
 		f.dockerPath, table,
 	)
 	_, err := b.upstream.Exec(context.Background(), q)
+
 	return err
 }
 
 func (b *Bridge) purifierLoop() error {
 	for t, f := range b.loader.data {
-		if f.cntRows < b.rowsFileLimit {
+		if f.cntRows < b.loader.rowsLimit {
 			continue
 		}
 
@@ -565,5 +633,3 @@ func (b *Bridge) purifierLoop() error {
 
 	return nil
 }
-
-//load data infile '/opt/dump/employee_data_town.clients' into table town.clients  fields terminated by ','  lines terminated by '\n'

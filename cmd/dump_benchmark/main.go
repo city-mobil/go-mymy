@@ -23,7 +23,7 @@ var (
 )
 
 const (
-	sourceRows = 5000
+	sourceRows = 10000
 )
 
 func main() {
@@ -76,7 +76,7 @@ func main() {
 
 	start := time.Now()
 	go func() {
-		select {
+		select { //nolint:gosimple
 		case <-b.WaitDumpDone():
 			end := time.Since(start)
 			logger.Info().Msgf("dump finished in %d ms", end.Milliseconds())
@@ -103,7 +103,7 @@ func initDBs(sClient, uClient *client.SQLClient) {
 
 	query := "INSERT INTO city.users (id, username, password, name, email) VALUES (?, ?, ?, ?, ?)"
 	for i := 1; i <= sourceRows; i++ {
-		_, err := sClient.Exec(context.Background(), query, i, "bob", "12345", "Bob", "bo,b@email.com")
+		_, err := sClient.Exec(context.Background(), query, i, "bob", "12345", "Bob", "bob@email.com")
 		if err != nil {
 			logger.Fatal().Err(err).Msgf("could not insert the row №%d", i)
 		}
@@ -126,8 +126,7 @@ func hasSyncedData(upstream *client.SQLClient) bool {
 	res := upstream.QueryRow(context.Background(), "SELECT COUNT(*) FROM town.clients")
 
 	var cnt int
-	err := res.Scan(&cnt)
-	if err != nil {
+	if err := res.Scan(&cnt); err != nil {
 		log.Fatal().Err(err).Msg("could not fetch rows count in upstream")
 	}
 

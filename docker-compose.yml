@@ -21,7 +21,7 @@ services:
       - MYSQL_USER=repl
       - MYSQL_PASSWORD=repl
       - MYSQL_ROOT_PASSWORD=root_pwd
-    command: --bind-address=0.0.0.0 --ssl=0 --default-authentication-plugin=mysql_native_password
+    command: --bind-address=0.0.0.0 --ssl=0 --default-authentication-plugin=mysql_native_password --secure-file-priv=/opt/dump
     volumes:
       - ./docker/upstream/init.d:/docker-entrypoint-initdb.d
       - ./bin/tmp:/opt/dump:ro

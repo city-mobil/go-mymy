@@ -1,3 +1,4 @@
+//nolint:tagliatelle
 package config
 
 import (
@@ -26,7 +27,9 @@ const (
 	defaultMaxIdleConns       = 200
 	defaultConnectTimeout     = 1 * time.Second
 	defaultWriteTimeout       = 1 * time.Second
-	defaultDumpSize           = 50
+	defaultDumpSize           = 5000
+	defaultLocalPathPrefix    = "bin/tmp"
+	defaultDockerPathPrefix   = "/opt/dump"
 )
 
 type Config struct {
@@ -91,14 +94,21 @@ func (c *AppConfig) withDefaults() {
 
 type SourceConfig struct {
 	Dump struct {
-		// ExecPath is absolute path to mysqldump binary.
-		ExecPath string `yaml:"dump_exec_path"`
-		// SkipMasterData set true if you have no privilege to use `--master-data`.
-		SkipMasterData bool `yaml:"skip_master_data"`
 		// ExtraOptions for mysqldump CLI.
 		ExtraOptions []string `yaml:"extra_options"`
-		// DumpSize is the storage size for the dump
+		// ExecPath is absolute path to mysqldump binary.
+		ExecPath string `yaml:"dump_exec_path"`
+		// LocalPathDumpFile this is the path in the folder where files with requests for dump will be stored on the local machine.
+		LocalPathDumpFile string `yaml:"local_path"`
+		// DockerPathDumpFile this is the path in the folder where the files with requests for dump will be stored in the container.
+		DockerPathDumpFile string `yaml:"docker_path"`
+		// DumpSize is the storage size for the dump.
 		DumpSize int `yaml:"dump_size"`
+		// SkipMasterData set true if you have no privilege to use `--master-data`.
+		SkipMasterData bool `yaml:"skip_master_data"`
+		// DirectDump it is a flag that indicates whether to use load data statement for dump or to dump on separate requests.
+		// Default false.
+		DirectDump bool `yaml:"direct_dump"`
 	} `yaml:"dump"`
 	Addr     string `yaml:"addr"`
 	User     string `yaml:"user"`
@@ -119,6 +129,14 @@ func (c *SourceConfig) withDefaults() {
 	c.Charset = defaultCharset
 	if c.Dump.DumpSize == 0 {
 		c.Dump.DumpSize = defaultDumpSize
+	}
+
+	if c.Dump.LocalPathDumpFile == "" {
+		c.Dump.LocalPathDumpFile = defaultLocalPathPrefix
+	}
+
+	if c.Dump.DockerPathDumpFile == "" {
+		c.Dump.DockerPathDumpFile = defaultDockerPathPrefix
 	}
 }
 

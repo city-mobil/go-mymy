@@ -1,3 +1,4 @@
+//nolint:paralleltest
 package bridge
 
 import (
@@ -111,8 +112,7 @@ func (s *bridgeSuite) hasSyncedData(rows int) bool {
 	res := s.upstream.QueryRow(context.Background(), "SELECT COUNT(*) FROM town.clients")
 
 	var cnt int
-	err := res.Scan(&cnt)
-	if assert.NoError(s.T(), err) {
+	if err := res.Scan(&cnt); assert.NoError(s.T(), err) {
 		return cnt == rows
 	}
 
@@ -522,4 +522,124 @@ func (s *bridgeSuite) TestFactoryReturnsError() {
 	b, err := New(s.cfg, &errFactory{}, s.logger)
 	assert.Error(t, err)
 	assert.Nil(t, b)
+}
+
+func (s *bridgeSuite) TestDumpWithLoadFiles() {
+	t := s.T()
+	dumpPath := s.cfg.Replication.SourceOpts.Dump.ExecPath
+	if !assert.FileExists(t, dumpPath) {
+		t.Skip("test requires mysqldump utility")
+	}
+
+	factory := &baseFactory{
+		table: "clients",
+		skip:  []string{"username", "password"},
+	}
+
+	s.cfg.Replication.SourceOpts.Dump.DirectDump = false
+
+	cfg := *s.cfg
+	s.init(&cfg, factory)
+
+	rows := 6000
+
+	// Prepare initial data.
+	for i := 1; i <= rows; i++ {
+		_, err := s.source.Exec(context.Background(), "INSERT INTO city.users (id, username, password, name, email) VALUES (?, ?, ?, ?, ?)", i, "bob", "12345", "Bob", "bob@email.com")
+		require.NoError(t, err)
+	}
+
+	go func() {
+		err := s.bridge.Run()
+		assert.NoError(t, err)
+	}()
+
+	assert.Eventually(t, s.bridge.Dumping, 100*time.Millisecond, 5*time.Millisecond)
+	assert.False(t, s.bridge.Running())
+
+	<-s.bridge.WaitDumpDone()
+
+	assert.Eventually(t, func() bool {
+		return !s.bridge.Dumping()
+	}, 100*time.Millisecond, 5*time.Millisecond)
+	assert.True(t, s.bridge.Running())
+
+	require.True(t, s.hasSyncedData(rows))
+
+	err := s.bridge.Close()
+	assert.NoError(t, err)
+
+	assert.False(t, s.bridge.Dumping())
+	assert.False(t, s.bridge.Running())
+
+	// checking that there was a dump from the load file and also that it happened when
+	// the file was cleaned up. That is, the primary key should not be equal to 1
+	p := completPrefix(s.cfg.Replication.SourceOpts.Dump.LocalPathDumpFile) + "town.clients"
+	f, err := os.Open(p)
+	assert.NoError(t, err)
+
+	var i int
+	_, err = fmt.Fscanf(f, `"%d"`, &i)
+	assert.NoError(t, err)
+	assert.Greater(t, i, 1000)
+}
+
+func (s *bridgeSuite) TestDumpWithDelimiterInData() {
+	t := s.T()
+	dumpPath := s.cfg.Replication.SourceOpts.Dump.ExecPath
+	if !assert.FileExists(t, dumpPath) {
+		t.Skip("test requires mysqldump utility")
+	}
+
+	factory := &baseFactory{
+		table: "clients",
+		skip:  []string{"username", "password"},
+	}
+
+	s.cfg.Replication.SourceOpts.Dump.DirectDump = false
+
+	cfg := *s.cfg
+	s.init(&cfg, factory)
+
+	rows := 300
+
+	// Prepare initial data.
+	for i := 1; i <= rows; i++ {
+		_, err := s.source.Exec(context.Background(), "INSERT INTO city.users (id, username, password, name, email) VALUES (?, ?, ?, ?, ?)", i, "bob", "12345", "Bob", "b,ob@email.com")
+		require.NoError(t, err)
+	}
+
+	go func() {
+		err := s.bridge.Run()
+		assert.NoError(t, err)
+	}()
+
+	assert.Eventually(t, s.bridge.Dumping, 100*time.Millisecond, 5*time.Millisecond)
+	assert.False(t, s.bridge.Running())
+
+	<-s.bridge.WaitDumpDone()
+
+	assert.Eventually(t, func() bool {
+		return !s.bridge.Dumping()
+	}, 100*time.Millisecond, 5*time.Millisecond)
+	assert.True(t, s.bridge.Running())
+
+	require.True(t, s.hasSyncedData(rows))
+
+	err := s.bridge.Close()
+	assert.NoError(t, err)
+
+	assert.False(t, s.bridge.Dumping())
+	assert.False(t, s.bridge.Running())
+
+	// checking that the comma inside the data did not affect the delimitation
+	p := completPrefix(s.cfg.Replication.SourceOpts.Dump.LocalPathDumpFile) + "town.clients"
+	f, err := os.Open(p)
+	assert.NoError(t, err)
+
+	var str string
+	_, err = fmt.Fscanf(f, "%s\n", &str)
+
+	assert.NoError(t, err)
+	assert.Equal(t, `"1","Bob","b,ob@email.com"`, str)
 }
