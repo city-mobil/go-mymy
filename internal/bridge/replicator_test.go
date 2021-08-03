@@ -230,8 +230,8 @@ func (s *bridgeSuite) TestDumpWithLoadInFileEnabled() {
 	require.NoError(t, err)
 
 	go func() {
-		err := s.bridge.Run()
-		assert.NoError(t, err)
+		rerr := s.bridge.Run()
+		assert.NoError(t, rerr)
 	}()
 
 	assert.Eventually(t, s.bridge.Dumping, 100*time.Millisecond, 5*time.Millisecond)

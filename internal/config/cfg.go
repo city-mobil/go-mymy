@@ -27,7 +27,6 @@ const (
 	defaultConnectTimeout           = 1 * time.Second
 	defaultWriteTimeout             = 1 * time.Second
 	defaultLoadInFileFlushThreshold = 5000
-	defaultLoadInFilePath           = "/opt/mymy/dump"
 )
 
 type Config struct {
