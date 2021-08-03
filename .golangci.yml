@@ -70,4 +70,4 @@ linters:
     - gomnd
 
 service:
-  golangci-lint-version: 1.32.x # use the fixed version to not introduce new linters unexpectedly
+  golangci-lint-version: 1.32.2

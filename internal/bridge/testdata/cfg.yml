@@ -15,7 +15,8 @@ replication:
 
   source:
     dump:
-      exec_path: '/usr/bin/mysqldump'
+      load_in_file_enabled: false
+      load_in_file_flush_threshold: 5000
       skip_master_data: false
       extra_options:
         - '--column-statistics=0'

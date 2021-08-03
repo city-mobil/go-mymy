@@ -19,7 +19,10 @@ import (
 	"github.com/city-mobil/go-mymy/pkg/mymy"
 )
 
-const eventsBufSize = 4096
+const (
+	eventsBufSize    = 4096
+	dumpPollInterval = 25 * time.Millisecond
+)
 
 var ErrRuleNotExist = errors.New("rule is not exist")
 
@@ -40,18 +43,24 @@ type Bridge struct {
 	running  *atomic.Bool
 	syncedAt *atomic.Int64
 
-	syncCh    chan interface{}
-	closeOnce *sync.Once
+	dumpDoneCh chan struct{}
+	syncCh     chan interface{}
+	closeOnce  *sync.Once
+
+	dumpLoadInFileEnabled        bool
+	dumpLoadInFileFlushThreshold int
+	dumpInFileLoader             *inFileLoader
 }
 
 func New(cfg *config.Config, ehFactory EventHandlerFactory, logger zerolog.Logger) (*Bridge, error) {
 	b := &Bridge{
-		logger:    logger,
-		dumping:   atomic.NewBool(false),
-		running:   atomic.NewBool(false),
-		syncedAt:  atomic.NewInt64(0),
-		syncCh:    make(chan interface{}, eventsBufSize),
-		closeOnce: &sync.Once{},
+		logger:     logger,
+		dumping:    atomic.NewBool(false),
+		running:    atomic.NewBool(false),
+		syncedAt:   atomic.NewInt64(0),
+		dumpDoneCh: make(chan struct{}),
+		syncCh:     make(chan interface{}, eventsBufSize),
+		closeOnce:  &sync.Once{},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -78,6 +87,11 @@ func New(cfg *config.Config, ehFactory EventHandlerFactory, logger zerolog.Logge
 	if err := b.newUpstream(cfg); err != nil {
 		return nil, err
 	}
+
+	dumpCfg := cfg.Replication.SourceOpts.Dump
+	b.dumpLoadInFileEnabled = dumpCfg.LoadInFileEnabled
+	b.dumpLoadInFileFlushThreshold = dumpCfg.LoadInFileFlushThreshold
+	b.dumpInFileLoader = newInFileLoader(cfg.Replication.UpstreamOpts.Database, b.upstream, b.dumpLoadInFileFlushThreshold)
 
 	return b, nil
 }
@@ -253,24 +267,34 @@ func (b *Bridge) Run() error {
 	errCh := make(chan error, 2)
 
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
-		err := b.syncLoop()
+		b.setDumping(true)
+
+		var err error
+		if b.dumpLoadInFileEnabled {
+			err = b.dumpLoopUsingInFile()
+		} else {
+			err = b.dumpLoopOneByOne()
+		}
+
+		if err != nil {
+			errCh <- fmt.Errorf("dump loop error: %w", err)
+			b.cancel()
+
+			return
+		}
+
+		b.setDumping(false)
+		b.setRunning(true)
+
+		err = b.syncLoop()
 		if err != nil {
 			errCh <- fmt.Errorf("sync loop error: %w", err)
 			b.cancel()
 		}
-	}()
-
-	b.setDumping(true)
-	go func() {
-		defer wg.Done()
-
-		<-b.canal.WaitDumpDone()
-		b.setDumping(false)
-		b.setRunning(true)
 	}()
 
 	var err error
@@ -298,6 +322,119 @@ func (b *Bridge) Run() error {
 	}
 
 	return multi
+}
+
+func (b *Bridge) dumpLoopUsingInFile() error {
+	defer close(b.dumpDoneCh)
+
+	poller := time.NewTicker(dumpPollInterval)
+	defer poller.Stop()
+
+	read := func(buf *batch, max int) error {
+		for txn := 0; txn < max; txn++ {
+			if len(b.syncCh) == 0 {
+				break
+			}
+
+			got := <-b.syncCh
+			switch v := got.(type) {
+			case *savePos:
+				err := b.stateSaver.save(v.pos, v.force)
+				if err != nil {
+					return err
+				}
+			case batch:
+				*buf = append(*buf, v...)
+			}
+		}
+
+		return nil
+	}
+
+	for {
+		select {
+		case <-poller.C:
+			store := make(batch, 0, b.dumpLoadInFileFlushThreshold*2)
+			err := read(&store, b.dumpLoadInFileFlushThreshold)
+			if err != nil {
+				return err
+			}
+
+			err = b.dumpInFileLoader.append(store)
+			if err != nil {
+				return err
+			}
+
+			b.syncedAt.Store(time.Now().Unix())
+		case <-b.canal.WaitDumpDone():
+			store := make(batch, 0, len(b.syncCh))
+			err := read(&store, len(b.syncCh))
+			if err != nil {
+				return err
+			}
+
+			err = b.dumpInFileLoader.append(store)
+			if err != nil {
+				return err
+			}
+
+			err = b.dumpInFileLoader.flushAll()
+			if err != nil {
+				return err
+			}
+
+			b.syncedAt.Store(time.Now().Unix())
+
+			return nil
+		case <-b.ctx.Done():
+			return nil
+		}
+	}
+}
+
+func (b *Bridge) dumpLoopOneByOne() error {
+	defer close(b.dumpDoneCh)
+
+	process := func(txn interface{}) error {
+		switch v := txn.(type) {
+		case *savePos:
+			err := b.stateSaver.save(v.pos, v.force)
+			if err != nil {
+				return err
+			}
+		case batch:
+			err := b.doBatch(v)
+			if err != nil {
+				return err
+			}
+		}
+
+		b.syncedAt.Store(time.Now().Unix())
+
+		return nil
+	}
+
+	for {
+		select {
+		case txn := <-b.syncCh:
+			err := process(txn)
+			if err != nil {
+				return err
+			}
+		case <-b.canal.WaitDumpDone():
+			for len(b.syncCh) > 0 {
+				txn := <-b.syncCh
+				err := process(txn)
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
+		case <-b.ctx.Done():
+			return nil
+		}
+	}
 }
 
 func (b *Bridge) syncLoop() error {
@@ -389,6 +526,10 @@ func (b *Bridge) setDumping(v bool) {
 
 func (b *Bridge) Dumping() bool {
 	return b.dumping.Load()
+}
+
+func (b *Bridge) WaitDumpDone() <-chan struct{} {
+	return b.dumpDoneCh
 }
 
 func (b *Bridge) runBackgroundJobs() {

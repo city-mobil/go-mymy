@@ -111,8 +111,7 @@ func (s *bridgeSuite) hasSyncedData(rows int) bool {
 	res := s.upstream.QueryRow(context.Background(), "SELECT COUNT(*) FROM town.clients")
 
 	var cnt int
-	err := res.Scan(&cnt)
-	if assert.NoError(s.T(), err) {
+	if err := res.Scan(&cnt); assert.NoError(s.T(), err) {
 		return cnt == rows
 	}
 
@@ -139,6 +138,12 @@ func (s *bridgeSuite) AfterTest(_, _ string) {
 }
 
 func (s *bridgeSuite) TestNewBridge() {
+	t := s.T()
+	dumpPath := s.cfg.Replication.SourceOpts.Dump.ExecPath
+	if !assert.FileExists(t, dumpPath) {
+		t.Skip("test requires mysqldump utility")
+	}
+
 	factory := &baseFactory{
 		table: "clients",
 	}
@@ -151,7 +156,7 @@ func (s *bridgeSuite) TestNewBridge() {
 
 func (s *bridgeSuite) TestDump() {
 	t := s.T()
-	dumpPath := "/usr/bin/mysqldump"
+	dumpPath := s.cfg.Replication.SourceOpts.Dump.ExecPath
 	if !assert.FileExists(t, dumpPath) {
 		t.Skip("test requires mysqldump utility")
 	}
@@ -162,7 +167,6 @@ func (s *bridgeSuite) TestDump() {
 	}
 
 	cfg := *s.cfg
-	cfg.Replication.SourceOpts.Dump.ExecPath = dumpPath
 	s.init(&cfg, factory)
 
 	rows := 200
@@ -181,16 +185,14 @@ func (s *bridgeSuite) TestDump() {
 	assert.Eventually(t, s.bridge.Dumping, 100*time.Millisecond, 5*time.Millisecond)
 	assert.False(t, s.bridge.Running())
 
-	<-s.bridge.canal.WaitDumpDone()
+	<-s.bridge.WaitDumpDone()
 
 	assert.Eventually(t, func() bool {
 		return !s.bridge.Dumping()
 	}, 100*time.Millisecond, 5*time.Millisecond)
 	assert.True(t, s.bridge.Running())
 
-	require.Eventually(t, func() bool {
-		return s.hasSyncedData(rows)
-	}, 10*time.Second, 50*time.Millisecond)
+	require.True(t, s.hasSyncedData(rows))
 
 	err := s.bridge.Close()
 	assert.NoError(t, err)
@@ -199,8 +201,64 @@ func (s *bridgeSuite) TestDump() {
 	assert.False(t, s.bridge.Running())
 }
 
+func (s *bridgeSuite) TestDumpWithLoadInFileEnabled() {
+	t := s.T()
+	dumpPath := s.cfg.Replication.SourceOpts.Dump.ExecPath
+	if !assert.FileExists(t, dumpPath) {
+		t.Skip("test requires mysqldump utility")
+	}
+
+	factory := &baseFactory{
+		table: "clients",
+		skip:  []string{"username", "password"},
+	}
+
+	cfg := *s.cfg
+	cfg.Replication.SourceOpts.Dump.LoadInFileEnabled = true
+	s.init(&cfg, factory)
+
+	rows := 500
+
+	// Prepare initial data.
+	for i := 1; i < rows; i++ {
+		_, err := s.source.Exec(context.Background(), "INSERT INTO city.users (id, username, password, name, email) VALUES (?, ?, ?, ?, ?)", i, "bob", "12345", "Bob", "bob@email.com")
+		require.NoError(t, err)
+	}
+
+	// Test some special characters in argument values.
+	_, err := s.source.Exec(context.Background(), "INSERT INTO city.users (id, username, password, name, email) VALUES (?, ?, ?, ?, ?)", rows, "bob", "12345", "Bo,'\\b", "boc,.b@em\\?:ail.com")
+	require.NoError(t, err)
+
+	go func() {
+		rerr := s.bridge.Run()
+		assert.NoError(t, rerr)
+	}()
+
+	assert.Eventually(t, s.bridge.Dumping, 100*time.Millisecond, 5*time.Millisecond)
+	assert.False(t, s.bridge.Running())
+
+	<-s.bridge.WaitDumpDone()
+
+	assert.Eventually(t, func() bool {
+		return !s.bridge.Dumping()
+	}, 100*time.Millisecond, 5*time.Millisecond)
+	assert.True(t, s.bridge.Running())
+
+	require.True(t, s.hasSyncedData(rows))
+
+	err = s.bridge.Close()
+	assert.NoError(t, err)
+
+	assert.False(t, s.bridge.Dumping())
+	assert.False(t, s.bridge.Running())
+}
+
 func (s *bridgeSuite) TestReplication() {
 	t := s.T()
+	dumpPath := s.cfg.Replication.SourceOpts.Dump.ExecPath
+	if !assert.FileExists(t, dumpPath) {
+		t.Skip("test requires mysqldump utility")
+	}
 
 	factory := &baseFactory{
 		table: "clients",
@@ -215,7 +273,7 @@ func (s *bridgeSuite) TestReplication() {
 		cancel()
 	}()
 
-	<-s.bridge.canal.WaitDumpDone()
+	<-s.bridge.WaitDumpDone()
 
 	tick := time.NewTicker(10 * time.Millisecond)
 	defer tick.Stop()
@@ -264,6 +322,10 @@ tank:
 
 func (s *bridgeSuite) TestReconnect() {
 	t := s.T()
+	dumpPath := s.cfg.Replication.SourceOpts.Dump.ExecPath
+	if !assert.FileExists(t, dumpPath) {
+		t.Skip("test requires mysqldump utility")
+	}
 
 	factory := &baseFactory{
 		table: "clients",
@@ -297,6 +359,10 @@ func (s *bridgeSuite) TestReconnect() {
 
 func (s *bridgeSuite) TestRenameColumn() {
 	t := s.T()
+	dumpPath := s.cfg.Replication.SourceOpts.Dump.ExecPath
+	if !assert.FileExists(t, dumpPath) {
+		t.Skip("test requires mysqldump utility")
+	}
 
 	factory := &baseFactory{
 		table: "clients",
@@ -310,7 +376,7 @@ func (s *bridgeSuite) TestRenameColumn() {
 		assert.NoError(t, err)
 	}()
 
-	<-s.bridge.canal.WaitDumpDone()
+	<-s.bridge.WaitDumpDone()
 
 	_, err := s.source.Exec(context.Background(), "INSERT INTO city.users (username, password, name, email) VALUES (?, ?, ?, ?)", "bob", "12345", "Bob", "bob@email.com")
 	require.NoError(t, err)
@@ -356,6 +422,11 @@ func (f *mockFactory) New(_, _ string) (mymy.EventHandler, error) {
 
 func (s *bridgeSuite) TestAlterHandler() {
 	t := s.T()
+	dumpPath := s.cfg.Replication.SourceOpts.Dump.ExecPath
+	if !assert.FileExists(t, dumpPath) {
+		t.Skip("test requires mysqldump utility")
+	}
+
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -389,7 +460,7 @@ func (s *bridgeSuite) TestAlterHandler() {
 		assert.NoError(t, err)
 	}()
 
-	<-s.bridge.canal.WaitDumpDone()
+	<-s.bridge.WaitDumpDone()
 
 	_, err := s.source.Exec(context.Background(), "ALTER TABLE city.users CHANGE `name` `new_name` varchar(50)")
 	require.NoError(t, err)
@@ -407,6 +478,11 @@ func (s *bridgeSuite) TestAlterHandler() {
 
 func (s *bridgeSuite) TestHandlerReturnsError() {
 	t := s.T()
+	dumpPath := s.cfg.Replication.SourceOpts.Dump.ExecPath
+	if !assert.FileExists(t, dumpPath) {
+		t.Skip("test requires mysqldump utility")
+	}
+
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -428,7 +504,7 @@ func (s *bridgeSuite) TestHandlerReturnsError() {
 		assert.Error(t, err)
 	}()
 
-	<-s.bridge.canal.WaitDumpDone()
+	<-s.bridge.WaitDumpDone()
 
 	_, err := s.source.Exec(context.Background(), "INSERT INTO city.users (username, password, name, email) VALUES (?, ?, ?, ?)", "bob", "12345", "Bob", "bob@email.com")
 	require.NoError(t, err)
@@ -442,7 +518,7 @@ func (s *bridgeSuite) TestHandlerReturnsError() {
 func (s *bridgeSuite) TestDumpError() {
 	t := s.T()
 
-	dumpPath := "/usr/bin/mysqldump"
+	dumpPath := s.cfg.Replication.SourceOpts.Dump.ExecPath
 	if !assert.FileExists(t, dumpPath) {
 		t.Skip("test requires mysqldump utility")
 	}
@@ -473,7 +549,7 @@ func (s *bridgeSuite) TestDumpError() {
 		assert.Error(t, runErr)
 	}()
 
-	<-s.bridge.canal.WaitDumpDone()
+	<-s.bridge.WaitDumpDone()
 
 	wg.Wait()
 

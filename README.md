@@ -33,6 +33,14 @@ GRANT PROCESS, RELOAD, REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'repl'@'%
 FLUSH PRIVILEGES;
 ```
 
+MyMy supports two dump options:
+
+1. Mutate and import the initial data row by row. It is safe to use but it is really slow.
+2. Use the `LOAD DATA LOCAL INFILE` statement which faster significantly but requires enabling the option 
+   `local_infile` on the database side. Read more [here](https://dev.mysql.com/doc/refman/8.0/en/load-data.html).
+
+To use the second approach set option `load_in_file_enabled` to true.
+
 ## API
 
 Replicator exposes several debug endpoints:

@@ -5,7 +5,7 @@ app:
   health:
     seconds_behind_master: 5
   logging:
-    level: 'debug'
+    level: 'info'
     syslog_enabled: false
     file_enabled: true
     file_name: 'logs/mymy.dev.log'
@@ -19,7 +19,6 @@ replication:
 
   source:
     dump:
-      exec_path: '/usr/bin/mysqldump'
       load_in_file_enabled: false
       load_in_file_flush_threshold: 10000
       skip_master_data: false

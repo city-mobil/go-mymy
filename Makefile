@@ -15,14 +15,25 @@ build: gen
 	go build ${LDFLAGS} -o bin/${BINARY} cmd/mymy/main.go
 	go build -buildmode=plugin -o bin/plugins/mymy_filter.so cmd/plugins/filter/main.go
 	cp cmd/plugins/filter/cfg.yml bin/plugins/filter.plugin.yml
+	go build -o bin/dump_benchmark cmd/dump_benchmark/main.go
 
 .PHONY: lint
 lint:
 	golangci-lint run -v ./...
 
+.PHONY: fmt
+fmt:
+	go fmt ./...
+
 .PHONY: run
 run: build
 	bin/${BINARY} -config=config/dev.conf.yml
+
+.PHONY: run_dump_benchmark
+run_dump_benchmark: build
+	rm -rf bin/tmp/*
+	rm -f bin/state.info
+	bin/dump_benchmark -config=config/dump_benchmark.conf.yml
 
 .PHONY: run_short_tests
 run_short_tests:

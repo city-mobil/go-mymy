@@ -9,24 +9,24 @@ import (
 )
 
 const (
-	defaultListenAddr         = ":8080"
-	defaultDataFile           = "/etc/mymy/state.info"
-	defaultPluginDir          = "plugins"
-	defaultHealthSBM          = 10
-	defaultLogLevel           = "debug"
-	defaultSysLogEnabled      = false
-	defaultFileLoggingEnabled = false
-	defaultLogFilename        = "/var/log/mymy.log"
-	defaultLogFileMaxSize     = 256
-	defaultLogFileMaxBackups  = 3
-	defaultLogFileMaxAge      = 5
-	defaultDumpExecPath       = "/usr/bin/mysqldump"
-	defaultMaxRetries         = 5
-	defaultCharset            = "utf8mb4"
-	defaultMaxOpenConns       = 200
-	defaultMaxIdleConns       = 200
-	defaultConnectTimeout     = 1 * time.Second
-	defaultWriteTimeout       = 1 * time.Second
+	defaultListenAddr               = ":8080"
+	defaultDataFile                 = "/etc/mymy/state.info"
+	defaultPluginDir                = "plugins"
+	defaultHealthSBM                = 10
+	defaultLogLevel                 = "debug"
+	defaultSysLogEnabled            = false
+	defaultFileLoggingEnabled       = false
+	defaultLogFilename              = "/var/log/mymy.log"
+	defaultLogFileMaxSize           = 256
+	defaultLogFileMaxBackups        = 3
+	defaultLogFileMaxAge            = 5
+	defaultMaxRetries               = 5
+	defaultCharset                  = "utf8mb4"
+	defaultMaxOpenConns             = 200
+	defaultMaxIdleConns             = 200
+	defaultConnectTimeout           = 1 * time.Second
+	defaultWriteTimeout             = 1 * time.Second
+	defaultLoadInFileFlushThreshold = 5000
 )
 
 type Config struct {
@@ -91,12 +91,17 @@ func (c *AppConfig) withDefaults() {
 
 type SourceConfig struct {
 	Dump struct {
-		// ExecPath is absolute path to mysqldump binary.
-		ExecPath string `yaml:"dump_exec_path"`
-		// SkipMasterData set true if you have no privilege to use `--master-data`.
-		SkipMasterData bool `yaml:"skip_master_data"`
 		// ExtraOptions for mysqldump CLI.
 		ExtraOptions []string `yaml:"extra_options"`
+		// ExecPath is absolute path to mysqldump binary.
+		ExecPath string `yaml:"exec_path"`
+		// LoadInFileFlushThreshold defines a maximum number of rows to collect before flushing to the upstream database.
+		LoadInFileFlushThreshold int `yaml:"load_in_file_flush_threshold"`
+		// LoadInFileEnabled set true whether you want to dump the data using the LOAD DATA INFILE statement
+		// instead of sending the transactions one by one.
+		LoadInFileEnabled bool `yaml:"load_in_file_enabled"`
+		// SkipMasterData set true if you have no privilege to use `--master-data`.
+		SkipMasterData bool `yaml:"skip_master_data"`
 	} `yaml:"dump"`
 	Addr     string `yaml:"addr"`
 	User     string `yaml:"user"`
@@ -110,8 +115,39 @@ func (c *SourceConfig) withDefaults() {
 		return
 	}
 
-	c.Dump.ExecPath = defaultDumpExecPath
+	if c.Dump.ExecPath == "" {
+		c.Dump.ExecPath = findDumpExecPath()
+	}
+
 	c.Charset = defaultCharset
+	if c.Dump.LoadInFileFlushThreshold == 0 {
+		c.Dump.LoadInFileFlushThreshold = defaultLoadInFileFlushThreshold
+	}
+}
+
+func findDumpExecPath() string {
+	findPath := []string{"/usr/bin/mysqldump", "/usr/local/bin/mysqldump"}
+
+	for _, path := range findPath {
+		if isFileExist(path) {
+			return path
+		}
+	}
+
+	return ""
+}
+
+func isFileExist(path string) bool {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+
+	if info.IsDir() {
+		return false
+	}
+
+	return true
 }
 
 type UpstreamConfig struct {

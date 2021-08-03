@@ -1,4 +1,4 @@
-//nolint:unused,deadcode
+//nolint:deadcode,unused
 package main
 
 import (
