@@ -23,7 +23,7 @@ var (
 )
 
 const (
-	sourceRows = 10000
+	sourceRows = 20000
 )
 
 func main() {
@@ -76,15 +76,14 @@ func main() {
 
 	start := time.Now()
 	go func() {
-		select { //nolint:gosimple
-		case <-b.WaitDumpDone():
-			end := time.Since(start)
-			logger.Info().Msgf("dump finished in %d ms", end.Milliseconds())
+		<-b.WaitDumpDone()
 
-			cerr := b.Close()
-			if cerr != nil {
-				logger.Error().Err(cerr).Msg("got error on closing replicator")
-			}
+		end := time.Since(start)
+		logger.Info().Msgf("dump finished in %d ms", end.Milliseconds())
+
+		cerr := b.Close()
+		if cerr != nil {
+			logger.Error().Err(cerr).Msg("got error on closing replicator")
 		}
 	}()
 

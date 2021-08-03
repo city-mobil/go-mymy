@@ -1,4 +1,3 @@
-//nolint:paralleltest
 package client
 
 import (

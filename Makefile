@@ -33,7 +33,7 @@ run: build
 run_dump_benchmark: build
 	rm -rf bin/tmp/*
 	rm -f bin/state.info
-	bin/dump_benchmark -config=config/banch.conf.yml
+	bin/dump_benchmark -config=config/dump_benchmark.conf.yml
 
 .PHONY: run_short_tests
 run_short_tests:

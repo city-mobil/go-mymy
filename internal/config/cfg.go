@@ -1,4 +1,3 @@
-//nolint:tagliatelle
 package config
 
 import (
@@ -10,26 +9,25 @@ import (
 )
 
 const (
-	defaultListenAddr         = ":8080"
-	defaultDataFile           = "/etc/mymy/state.info"
-	defaultPluginDir          = "plugins"
-	defaultHealthSBM          = 10
-	defaultLogLevel           = "debug"
-	defaultSysLogEnabled      = false
-	defaultFileLoggingEnabled = false
-	defaultLogFilename        = "/var/log/mymy.log"
-	defaultLogFileMaxSize     = 256
-	defaultLogFileMaxBackups  = 3
-	defaultLogFileMaxAge      = 5
-	defaultMaxRetries         = 5
-	defaultCharset            = "utf8mb4"
-	defaultMaxOpenConns       = 200
-	defaultMaxIdleConns       = 200
-	defaultConnectTimeout     = 1 * time.Second
-	defaultWriteTimeout       = 1 * time.Second
-	defaultDumpSize           = 5000
-	defaultLocalPathPrefix    = "bin/tmp"
-	defaultDockerPathPrefix   = "/opt/dump"
+	defaultListenAddr               = ":8080"
+	defaultDataFile                 = "/etc/mymy/state.info"
+	defaultPluginDir                = "plugins"
+	defaultHealthSBM                = 10
+	defaultLogLevel                 = "debug"
+	defaultSysLogEnabled            = false
+	defaultFileLoggingEnabled       = false
+	defaultLogFilename              = "/var/log/mymy.log"
+	defaultLogFileMaxSize           = 256
+	defaultLogFileMaxBackups        = 3
+	defaultLogFileMaxAge            = 5
+	defaultMaxRetries               = 5
+	defaultCharset                  = "utf8mb4"
+	defaultMaxOpenConns             = 200
+	defaultMaxIdleConns             = 200
+	defaultConnectTimeout           = 1 * time.Second
+	defaultWriteTimeout             = 1 * time.Second
+	defaultLoadInFileFlushThreshold = 5000
+	defaultLoadInFilePath           = "/opt/mymy/dump"
 )
 
 type Config struct {
@@ -97,18 +95,14 @@ type SourceConfig struct {
 		// ExtraOptions for mysqldump CLI.
 		ExtraOptions []string `yaml:"extra_options"`
 		// ExecPath is absolute path to mysqldump binary.
-		ExecPath string `yaml:"dump_exec_path"`
-		// LocalPathDumpFile this is the path in the folder where files with requests for dump will be stored on the local machine.
-		LocalPathDumpFile string `yaml:"local_path"`
-		// DockerPathDumpFile this is the path in the folder where the files with requests for dump will be stored in the container.
-		DockerPathDumpFile string `yaml:"docker_path"`
-		// DumpSize is the storage size for the dump.
-		DumpSize int `yaml:"dump_size"`
+		ExecPath string `yaml:"exec_path"`
+		// LoadInFileFlushThreshold defines a maximum number of rows to collect before flushing to the upstream database.
+		LoadInFileFlushThreshold int `yaml:"load_in_file_flush_threshold"`
+		// LoadInFileEnabled set true whether you want to dump the data using the LOAD DATA INFILE statement
+		// instead of sending the transactions one by one.
+		LoadInFileEnabled bool `yaml:"load_in_file_enabled"`
 		// SkipMasterData set true if you have no privilege to use `--master-data`.
 		SkipMasterData bool `yaml:"skip_master_data"`
-		// DirectDump it is a flag that indicates whether to use load data statement for dump or to dump on separate requests.
-		// Default false.
-		DirectDump bool `yaml:"direct_dump"`
 	} `yaml:"dump"`
 	Addr     string `yaml:"addr"`
 	User     string `yaml:"user"`
@@ -127,16 +121,8 @@ func (c *SourceConfig) withDefaults() {
 	}
 
 	c.Charset = defaultCharset
-	if c.Dump.DumpSize == 0 {
-		c.Dump.DumpSize = defaultDumpSize
-	}
-
-	if c.Dump.LocalPathDumpFile == "" {
-		c.Dump.LocalPathDumpFile = defaultLocalPathPrefix
-	}
-
-	if c.Dump.DockerPathDumpFile == "" {
-		c.Dump.DockerPathDumpFile = defaultDockerPathPrefix
+	if c.Dump.LoadInFileFlushThreshold == 0 {
+		c.Dump.LoadInFileFlushThreshold = defaultLoadInFileFlushThreshold
 	}
 }
 

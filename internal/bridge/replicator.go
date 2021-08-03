@@ -47,9 +47,9 @@ type Bridge struct {
 	syncCh     chan interface{}
 	closeOnce  *sync.Once
 
-	directDump bool
-	dumpSize   int
-	loader     *loader
+	dumpLoadInFileEnabled        bool
+	dumpLoadInFileFlushThreshold int
+	dumpInFileLoader             *inFileLoader
 }
 
 func New(cfg *config.Config, ehFactory EventHandlerFactory, logger zerolog.Logger) (*Bridge, error) {
@@ -61,9 +61,6 @@ func New(cfg *config.Config, ehFactory EventHandlerFactory, logger zerolog.Logge
 		dumpDoneCh: make(chan struct{}),
 		syncCh:     make(chan interface{}, eventsBufSize),
 		closeOnce:  &sync.Once{},
-		directDump: cfg.Replication.SourceOpts.Dump.DirectDump,
-		dumpSize:   cfg.Replication.SourceOpts.Dump.DumpSize,
-		loader:     newLoader(cfg),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -90,6 +87,11 @@ func New(cfg *config.Config, ehFactory EventHandlerFactory, logger zerolog.Logge
 	if err := b.newUpstream(cfg); err != nil {
 		return nil, err
 	}
+
+	dumpCfg := cfg.Replication.SourceOpts.Dump
+	b.dumpLoadInFileEnabled = dumpCfg.LoadInFileEnabled
+	b.dumpLoadInFileFlushThreshold = dumpCfg.LoadInFileFlushThreshold
+	b.dumpInFileLoader = newInFileLoader(b.upstream, b.dumpLoadInFileFlushThreshold)
 
 	return b, nil
 }
@@ -259,7 +261,6 @@ func (b *Bridge) newUpstream(cfg *config.Config) error {
 // until closed or meets errors.
 func (b *Bridge) Run() error {
 	defer b.setRunning(false)
-	defer b.loader.closeFiles()
 
 	go b.runBackgroundJobs()
 
@@ -273,10 +274,10 @@ func (b *Bridge) Run() error {
 		b.setDumping(true)
 
 		var err error
-		if b.directDump {
-			err = b.directDumpLoop()
+		if b.dumpLoadInFileEnabled {
+			err = b.dumpLoopUsingInFile()
 		} else {
-			err = b.dumpLoop()
+			err = b.dumpLoopOneByOne()
 		}
 
 		if err != nil {
@@ -323,14 +324,12 @@ func (b *Bridge) Run() error {
 	return multi
 }
 
-//nolint:cyclop,gocyclo
-func (b *Bridge) dumpLoop() error {
+func (b *Bridge) dumpLoopUsingInFile() error {
 	defer close(b.dumpDoneCh)
 
 	poller := time.NewTicker(dumpPollInterval)
 	defer poller.Stop()
 
-	store := make(batch, 0, b.dumpSize*2)
 	read := func(buf *batch, max int) error {
 		for txn := 0; txn < max; txn++ {
 			if len(b.syncCh) == 0 {
@@ -355,38 +354,31 @@ func (b *Bridge) dumpLoop() error {
 	for {
 		select {
 		case <-poller.C:
-			err := read(&store, b.dumpSize)
+			store := make(batch, 0, b.dumpLoadInFileFlushThreshold*2)
+			err := read(&store, b.dumpLoadInFileFlushThreshold)
 			if err != nil {
 				return err
 			}
 
-			if len(store) >= b.dumpSize {
-				err = b.putBatchInFile(store)
-				if err != nil {
-					return err
-				}
-
-				err = b.purifierLoop()
-				if err != nil {
-					return err
-				}
-
-				store = make(batch, 0, b.dumpSize*2)
-
-				b.syncedAt.Store(time.Now().Unix())
+			err = b.dumpInFileLoader.append(store)
+			if err != nil {
+				return err
 			}
+
+			b.syncedAt.Store(time.Now().Unix())
 		case <-b.canal.WaitDumpDone():
+			store := make(batch, 0, len(b.syncCh))
 			err := read(&store, len(b.syncCh))
 			if err != nil {
 				return err
 			}
 
-			err = b.putBatchInFile(store)
+			err = b.dumpInFileLoader.append(store)
 			if err != nil {
 				return err
 			}
 
-			err = b.loadDataToUpstream()
+			err = b.dumpInFileLoader.flushAll()
 			if err != nil {
 				return err
 			}
@@ -400,63 +392,43 @@ func (b *Bridge) dumpLoop() error {
 	}
 }
 
-//nolint:cyclop
-func (b *Bridge) directDumpLoop() error {
+func (b *Bridge) dumpLoopOneByOne() error {
 	defer close(b.dumpDoneCh)
 
-	poller := time.NewTicker(dumpPollInterval)
-	defer poller.Stop()
-
-	store := make(batch, 0, b.dumpSize*2)
-	read := func(buf *batch, max int) error {
-		for txn := 0; txn < max; txn++ {
-			if len(b.syncCh) == 0 {
-				break
+	process := func(txn interface{}) error {
+		switch v := txn.(type) {
+		case *savePos:
+			err := b.stateSaver.save(v.pos, v.force)
+			if err != nil {
+				return err
 			}
-
-			got := <-b.syncCh
-			switch v := got.(type) {
-			case *savePos:
-				err := b.stateSaver.save(v.pos, v.force)
-				if err != nil {
-					return err
-				}
-			case batch:
-				*buf = append(*buf, v...)
+		case batch:
+			err := b.doBatch(v)
+			if err != nil {
+				return err
 			}
 		}
+
+		b.syncedAt.Store(time.Now().Unix())
 
 		return nil
 	}
 
 	for {
 		select {
-		case <-poller.C:
-			err := read(&store, b.dumpSize)
+		case txn := <-b.syncCh:
+			err := process(txn)
 			if err != nil {
 				return err
 			}
-
-			err = b.doBatch(store)
-			if err != nil {
-				return err
-			}
-			store = make(batch, 0, b.dumpSize*2)
-
-			b.syncedAt.Store(time.Now().Unix())
-
 		case <-b.canal.WaitDumpDone():
-			err := read(&store, len(b.syncCh))
-			if err != nil {
-				return err
+			for len(b.syncCh) > 0 {
+				txn := <-b.syncCh
+				err := process(txn)
+				if err != nil {
+					return err
+				}
 			}
-
-			err = b.doBatch(store)
-			if err != nil {
-				return err
-			}
-
-			b.syncedAt.Store(time.Now().Unix())
 
 			return nil
 		case <-b.ctx.Done():
@@ -486,14 +458,6 @@ func (b *Bridge) syncLoop() error {
 			return nil
 		}
 	}
-}
-
-func (b *Bridge) putBatchInFile(queries batch) error {
-	if len(queries) == 0 {
-		return nil
-	}
-
-	return b.loader.writeToFile(queries, b.upstream.DBName)
 }
 
 func (b *Bridge) doBatch(queries batch) error {
@@ -584,52 +548,4 @@ func (b *Bridge) runBackgroundJobs() {
 			}
 		}
 	}()
-}
-
-func (b *Bridge) loadDataToUpstream() error {
-	for t, f := range b.loader.data {
-		err := b.loadDataOneFileToUpstream(f, t)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (b *Bridge) loadDataOneFileToUpstream(f *file, table string) error {
-	q := fmt.Sprintf(
-		`load data infile '%s' into table %s  fields terminated by ',' enclosed by '"' lines terminated by '\n'`,
-		f.dockerPath, table,
-	)
-	_, err := b.upstream.Exec(context.Background(), q)
-
-	return err
-}
-
-func (b *Bridge) purifierLoop() error {
-	for t, f := range b.loader.data {
-		if f.cntRows < b.loader.rowsLimit {
-			continue
-		}
-
-		err := b.loadDataOneFileToUpstream(f, t)
-		if err != nil {
-			return err
-		}
-
-		err = f.descriptor.Truncate(0)
-		if err != nil {
-			return err
-		}
-
-		_, err = f.descriptor.Seek(0, 0)
-		if err != nil {
-			return err
-		}
-
-		f.cntRows = 0
-	}
-
-	return nil
 }

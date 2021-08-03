@@ -20,10 +20,11 @@ replication:
   source:
     dump:
       exec_path: '/usr/bin/mysqldump'
+      load_in_file_enabled: false
+      load_in_file_flush_threshold: 10000
       skip_master_data: false
       extra_options:
         - '--column-statistics=0'
-      dump_size: 5000
     addr: '127.0.0.1:13306'
     user: 'repl'
     password: 'repl'

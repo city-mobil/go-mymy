@@ -1,4 +1,3 @@
-//nolint:paralleltest
 package config
 
 import (
@@ -48,6 +47,8 @@ func TestReadFromFile_ValidPath(t *testing.T) {
 	assert.Equal(t, "/usr/bin/mysqldump", source.Dump.ExecPath)
 	assert.False(t, source.Dump.SkipMasterData)
 	assert.Equal(t, []string{"--column-statistics=0"}, source.Dump.ExtraOptions)
+	assert.True(t, source.Dump.LoadInFileEnabled)
+	assert.Equal(t, 10000, source.Dump.LoadInFileFlushThreshold)
 	assert.Equal(t, "127.0.0.1:3306", source.Addr)
 	assert.Equal(t, "repl", source.User)
 	assert.Equal(t, "repl", source.Password)
