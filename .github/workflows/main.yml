@@ -24,6 +24,7 @@ jobs:
       - name: Create dump dir
         run: |
           mkdir -p ./bin/tmp
+          ls -l
 
       - name: Set up Go 1.14
         uses: actions/setup-go@v2
