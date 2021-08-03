@@ -21,6 +21,10 @@ jobs:
         run: |
           mysqldump --version
 
+      - name: Create dump dir
+        run: |
+          mkdir -p ./bin/tmp
+
       - name: Set up Go 1.14
         uses: actions/setup-go@v2
         with:
