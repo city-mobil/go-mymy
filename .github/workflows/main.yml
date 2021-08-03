@@ -44,10 +44,7 @@ jobs:
         env:
           MYSQL_SRC_VERSION: ${{ matrix.mysql_src }}
           MYSQL_DST_VERSION: ${{ matrix.mysql_dst }}
-        run: |
-          mkdir -p ./bin/tmp
-          ls -l
-          make run_tests
+        run: make run_tests
 
       - name: Cleanup
         if: ${{ always() }}

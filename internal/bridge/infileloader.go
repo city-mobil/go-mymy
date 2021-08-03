@@ -19,14 +19,15 @@ const (
 
 type inFileLoader struct {
 	data           map[string]batch
-	uploadPath     string
+	database       string
 	upstream       *client.SQLClient
 	flushThreshold int
 }
 
-func newInFileLoader(upstream *client.SQLClient, flushThreshold int) *inFileLoader {
+func newInFileLoader(database string, upstream *client.SQLClient, flushThreshold int) *inFileLoader {
 	return &inFileLoader{
 		data:           make(map[string]batch),
+		database:       database,
 		upstream:       upstream,
 		flushThreshold: flushThreshold,
 	}
@@ -34,7 +35,7 @@ func newInFileLoader(upstream *client.SQLClient, flushThreshold int) *inFileLoad
 
 func (loader *inFileLoader) append(queries batch) error {
 	for _, query := range queries {
-		key := loader.buildKey(loader.upstream.DBName, query.Table)
+		key := loader.buildKey(loader.database, query.Table)
 		b, ok := loader.data[key]
 		if !ok {
 			b = make(batch, 0)

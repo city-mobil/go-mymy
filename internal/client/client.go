@@ -10,7 +10,6 @@ const (
 )
 
 type SQLClient struct {
-	DBName  string
 	db      *sql.DB
 	retries int
 }
@@ -35,7 +34,6 @@ func New(cfg *Config) (*SQLClient, error) {
 	}
 
 	return &SQLClient{
-		DBName:  cfg.Database,
 		db:      db,
 		retries: retries,
 	}, nil
