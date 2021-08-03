@@ -21,11 +21,6 @@ jobs:
         run: |
           mysqldump --version
 
-      - name: Create dump dir
-        run: |
-          mkdir -p ./bin/tmp
-          ls -l /home/runner/work/go-mymy/go-mymy/bin
-
       - name: Set up Go 1.14
         uses: actions/setup-go@v2
         with:
@@ -49,7 +44,10 @@ jobs:
         env:
           MYSQL_SRC_VERSION: ${{ matrix.mysql_src }}
           MYSQL_DST_VERSION: ${{ matrix.mysql_dst }}
-        run: make run_tests
+        run: |
+          mkdir -p ./bin/tmp
+          ls -l
+          make run_tests
 
       - name: Cleanup
         if: ${{ always() }}
