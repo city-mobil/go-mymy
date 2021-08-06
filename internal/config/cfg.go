@@ -103,7 +103,7 @@ type SourceConfig struct {
 		LoadInFileEnabled bool `yaml:"load_in_file_enabled"`
 		// SkipMasterData set true if you have no privilege to use `--master-data`.
 		SkipMasterData bool `yaml:"skip_master_data"`
-		// ArgEnclose it is a parameter that points to the beginning and end of the arguments in the dump file
+		// ArgEnclose is a parameter that points to the beginning and end of the arguments in the dump file. Should be byte.
 		ArgEnclose string `yaml:"arg_enclose"`
 	} `yaml:"dump"`
 	Addr     string `yaml:"addr"`

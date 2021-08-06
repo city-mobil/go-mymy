@@ -68,6 +68,7 @@ linters:
     - wrapcheck
     - errorlint
     - gomnd
+    - asciicheck
 
 service:
   golangci-lint-version: 1.32.2

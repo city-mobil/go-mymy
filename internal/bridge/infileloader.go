@@ -8,11 +8,28 @@ import (
 	"strings"
 
 	"github.com/city-mobil/go-mymy/internal/client"
+	"github.com/city-mobil/go-mymy/internal/config"
 	"github.com/city-mobil/go-mymy/pkg/mymy"
 	"github.com/go-sql-driver/mysql"
 )
 
 const argSeparator = ","
+
+type loaderConfig struct {
+	database       string
+	upstream       *client.SQLClient
+	flushThreshold int
+	argEnclose     string
+}
+
+func newLoaderConfig(cfg *config.Config, upstream *client.SQLClient) *loaderConfig {
+	return &loaderConfig{
+		database:       cfg.Replication.UpstreamOpts.Database,
+		upstream:       upstream,
+		flushThreshold: cfg.Replication.SourceOpts.Dump.LoadInFileFlushThreshold,
+		argEnclose:     cfg.Replication.SourceOpts.Dump.ArgEnclose,
+	}
+}
 
 type inFileLoader struct {
 	data           map[string]batch
@@ -22,13 +39,13 @@ type inFileLoader struct {
 	argEnclose     string
 }
 
-func newInFileLoader(database string, upstream *client.SQLClient, flushThreshold int, argEnclose string) *inFileLoader {
+func newInFileLoader(cfg *loaderConfig) *inFileLoader {
 	return &inFileLoader{
 		data:           make(map[string]batch),
-		database:       database,
-		upstream:       upstream,
-		flushThreshold: flushThreshold,
-		argEnclose:     argEnclose,
+		database:       cfg.database,
+		upstream:       cfg.upstream,
+		flushThreshold: cfg.flushThreshold,
+		argEnclose:     cfg.argEnclose,
 	}
 }
 
