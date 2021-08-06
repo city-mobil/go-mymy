@@ -8,28 +8,44 @@ import (
 	"strings"
 
 	"github.com/city-mobil/go-mymy/internal/client"
+	"github.com/city-mobil/go-mymy/internal/config"
 	"github.com/city-mobil/go-mymy/pkg/mymy"
 	"github.com/go-sql-driver/mysql"
 )
 
-const (
-	argSeparator = ","
-	argEnclose   = `"`
-)
+const argSeparator = ","
+
+type loaderConfig struct {
+	database       string
+	upstream       *client.SQLClient
+	flushThreshold int
+	argEnclose     string
+}
+
+func newLoaderConfig(cfg *config.Config, upstream *client.SQLClient) *loaderConfig {
+	return &loaderConfig{
+		database:       cfg.Replication.UpstreamOpts.Database,
+		upstream:       upstream,
+		flushThreshold: cfg.Replication.SourceOpts.Dump.LoadInFileFlushThreshold,
+		argEnclose:     cfg.Replication.SourceOpts.Dump.ArgEnclose,
+	}
+}
 
 type inFileLoader struct {
 	data           map[string]batch
 	database       string
 	upstream       *client.SQLClient
 	flushThreshold int
+	argEnclose     string
 }
 
-func newInFileLoader(database string, upstream *client.SQLClient, flushThreshold int) *inFileLoader {
+func newInFileLoader(cfg *loaderConfig) *inFileLoader {
 	return &inFileLoader{
 		data:           make(map[string]batch),
-		database:       database,
-		upstream:       upstream,
-		flushThreshold: flushThreshold,
+		database:       cfg.database,
+		upstream:       cfg.upstream,
+		flushThreshold: cfg.flushThreshold,
+		argEnclose:     cfg.argEnclose,
 	}
 }
 
@@ -114,7 +130,7 @@ func (loader *inFileLoader) flushAll() error {
 func (loader *inFileLoader) buildDumpQuery(filepath, table string) string {
 	return fmt.Sprintf(
 		`LOAD DATA LOCAL INFILE '%s' INTO TABLE %s FIELDS TERMINATED BY '%s' ENCLOSED BY '%s' LINES TERMINATED BY '\n'`,
-		filepath, table, argSeparator, argEnclose,
+		filepath, table, argSeparator, loader.argEnclose,
 	)
 }
 
@@ -128,6 +144,7 @@ func (loader *inFileLoader) buildDumpRow(query *mymy.Query) string {
 		args[i] = arg.Value
 	}
 
+	argEnclose := loader.argEnclose
 	var sb strings.Builder
 	sb.WriteString(argEnclose)
 	sb.WriteString(fmt.Sprintf("%v", args[0]))

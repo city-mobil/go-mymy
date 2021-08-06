@@ -27,6 +27,7 @@ const (
 	defaultConnectTimeout           = 1 * time.Second
 	defaultWriteTimeout             = 1 * time.Second
 	defaultLoadInFileFlushThreshold = 5000
+	defaultАrgEnclose               = `"`
 )
 
 type Config struct {
@@ -102,6 +103,8 @@ type SourceConfig struct {
 		LoadInFileEnabled bool `yaml:"load_in_file_enabled"`
 		// SkipMasterData set true if you have no privilege to use `--master-data`.
 		SkipMasterData bool `yaml:"skip_master_data"`
+		// ArgEnclose is a parameter that points to the beginning and end of the arguments in the dump file. Should be byte.
+		ArgEnclose string `yaml:"arg_enclose"`
 	} `yaml:"dump"`
 	Addr     string `yaml:"addr"`
 	User     string `yaml:"user"`
@@ -115,14 +118,10 @@ func (c *SourceConfig) withDefaults() {
 		return
 	}
 
-	if c.Dump.ExecPath == "" {
-		c.Dump.ExecPath = findDumpExecPath()
-	}
-
+	c.Dump.ExecPath = findDumpExecPath()
 	c.Charset = defaultCharset
-	if c.Dump.LoadInFileFlushThreshold == 0 {
-		c.Dump.LoadInFileFlushThreshold = defaultLoadInFileFlushThreshold
-	}
+	c.Dump.LoadInFileFlushThreshold = defaultLoadInFileFlushThreshold
+	c.Dump.ArgEnclose = defaultАrgEnclose
 }
 
 func findDumpExecPath() string {
@@ -207,6 +206,14 @@ func ReadFromFile(path string) (*Config, error) {
 	err = yaml.Unmarshal(data, &cfg)
 	if err != nil {
 		return nil, err
+	}
+
+	if cfg.Replication.SourceOpts.Dump.LoadInFileFlushThreshold == 0 {
+		cfg.Replication.SourceOpts.Dump.LoadInFileFlushThreshold = defaultLoadInFileFlushThreshold
+	}
+
+	if len(cfg.Replication.SourceOpts.Dump.ArgEnclose) != 1 {
+		cfg.Replication.SourceOpts.Dump.ArgEnclose = defaultАrgEnclose
 	}
 
 	return &cfg, nil

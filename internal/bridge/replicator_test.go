@@ -215,18 +215,24 @@ func (s *bridgeSuite) TestDumpWithLoadInFileEnabled() {
 
 	cfg := *s.cfg
 	cfg.Replication.SourceOpts.Dump.LoadInFileEnabled = true
+	cfg.Replication.SourceOpts.Dump.ArgEnclose = "#"
 	s.init(&cfg, factory)
 
 	rows := 500
 
 	// Prepare initial data.
-	for i := 1; i < rows; i++ {
+	for i := 1; i < rows-1; i++ {
 		_, err := s.source.Exec(context.Background(), "INSERT INTO city.users (id, username, password, name, email) VALUES (?, ?, ?, ?, ?)", i, "bob", "12345", "Bob", "bob@email.com")
 		require.NoError(t, err)
 	}
 
 	// Test some special characters in argument values.
-	_, err := s.source.Exec(context.Background(), "INSERT INTO city.users (id, username, password, name, email) VALUES (?, ?, ?, ?, ?)", rows, "bob", "12345", "Bo,'\\b", "boc,.b@em\\?:ail.com")
+	_, err := s.source.Exec(context.Background(), "INSERT INTO city.users (id, username, password, name, email) VALUES (?, ?, ?, ?, ?)", rows-1, "bob", "12345", "Bo,'\\b", "boc,.b@em\\?:ail.com")
+	require.NoError(t, err)
+
+	// The case if the table has JSON
+	_, err = s.source.Exec(context.Background(), "INSERT INTO city.users (id, username, password, name, email) VALUES (?, ?, ?, ?, ?)", rows, "bob", "12345",
+		"Bob", `{"driver_uuid": "99b1a08a6bfbd181784dd26ed95a6058", "personal_goal_uuid": "858f12b9303bfbf7d0575a69174f5920"}`)
 	require.NoError(t, err)
 
 	go func() {
