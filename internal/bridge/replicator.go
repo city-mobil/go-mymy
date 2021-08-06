@@ -91,7 +91,8 @@ func New(cfg *config.Config, ehFactory EventHandlerFactory, logger zerolog.Logge
 	dumpCfg := cfg.Replication.SourceOpts.Dump
 	b.dumpLoadInFileEnabled = dumpCfg.LoadInFileEnabled
 	b.dumpLoadInFileFlushThreshold = dumpCfg.LoadInFileFlushThreshold
-	b.dumpInFileLoader = newInFileLoader(cfg.Replication.UpstreamOpts.Database, b.upstream, b.dumpLoadInFileFlushThreshold)
+	b.dumpInFileLoader = newInFileLoader(cfg.Replication.UpstreamOpts.Database, b.upstream,
+		b.dumpLoadInFileFlushThreshold, cfg.Replication.SourceOpts.Dump.ArgEnclose)
 
 	return b, nil
 }
